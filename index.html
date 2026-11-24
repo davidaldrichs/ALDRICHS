@@ -128,6 +128,20 @@
           <div id="tuning-panel"></div>
         </div>
         <div class="card">
+          <h2>Map 调校（XDF）</h2>
+          <p class="hint">导入 XDF 定义 + 载入 ROM（原厂备份），把增压/点火/喷油等 map 变成可读可改的参数。改的是文件副本，刷写仍走解锁+UDS+读回校验。</p>
+          <div class="row wrap">
+            <button id="map-xdf">导入 XDF</button>
+            <button id="map-rom">载入 ROM</button>
+            <button id="map-demo">载入演示 XDF+ROM</button>
+            <button id="map-export" disabled>导出修改后 ROM</button>
+          </div>
+          <input id="map-xdf-file" type="file" accept=".xdf,.xml" hidden />
+          <input id="map-rom-file" type="file" accept=".bin,.mrbk,.ori,.frf" hidden />
+          <p class="hint" id="map-status">尚未载入。</p>
+          <div id="map-list"></div>
+        </div>
+        <div class="card">
           <h2>即将支持的平台</h2>
           <p class="hint">刷写框架已把通用流程（会话→解锁→擦写→校验→复位）做成通用的，各平台只需补上差异部分。</p>
           <table class="caps" id="reserved-list"></table>

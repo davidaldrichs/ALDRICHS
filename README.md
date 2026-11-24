@@ -124,6 +124,7 @@ src/platform/daimler.ts         奔驰/戴姆勒 解锁算法（开源移植，�
 src/platform/tuning.ts          编码/调校模型（隐藏功能、大循环温度等）
 src/platform/ai-tuning.ts       AI 调校顾问（只在安全范围内建议，强制钳制，人工确认）
 src/platform/ai-client-http.ts  AI 接口客户端（OpenAI 兼容 / Anthropic）
+src/platform/map-def.ts         标定 map 定义（XDF 解析 + map 读写 + 换算 + 范围钳制）
 src/platform/flash-runner.ts    通用刷写流程调度 + 刷前安全检查 + 读回校验
 src/platform/backup-file.ts     .mrbk 备份格式、防刷错车检查
 src/modules/demo-flash.ts       演示模式的模拟 ECU（seed/key、校验和）
@@ -150,4 +151,5 @@ tests/daimler.test.ts  测试（奔驰算法：确定性、反推特性、字节
 tests/tuning.test.ts   测试（编码/调校：范围钳制、读写、品牌隔离）
 tests/uds.test.ts      测试（真实 UDS 流程：解锁/上传备份/擦写下载/读回校验）
 tests/logger.test.ts   测试（数据记录：手动/自动触发/松开即停/CSV）
+tests/map-def.test.ts  测试（XDF 解析、公式换算、map 读写 round-trip、范围钳制）
 ```

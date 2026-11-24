@@ -14,6 +14,7 @@ import { backupFileName, checkRestore, decodeBackup, encodeBackup } from './plat
 import type { FlashContext, FlashProvider } from './platform/vehicle-module';
 import { desktop, isDesktop, type SerialPortItem } from './transport/desktop-api';
 import { DataLogger, pidName, type LogProfile } from './core/logger';
+import { parseXdf, readMap, writeMap, mapStats, type MapItem } from './platform/map-def';
 
 type LinkKind = 'ble' | 'wifi' | 'serial' | 'demo';
 
@@ -1161,10 +1162,148 @@ async function aiLogProfile(): Promise<void> {
   }
 }
 
+/* ---------------- Map 调校（XDF） ---------------- */
+
+const mapState: { rom: Uint8Array | null; maps: MapItem[] } = { rom: null, maps: [] };
+
+function demoXdfAndRom(): { xml: string; rom: Uint8Array } {
+  const xml = `<XDFFORMAT version="1.60"><XDFHEADER><BASEOFFSET offset="0" subtract="0"/></XDFHEADER>
+<XDFCONSTANT uniqueid="0x1"><title>增压限制(示例)</title><EMBEDDEDDATA mmedaddress="0x10" mmedelementsizebits="16" mmedtypeflags="0x0"/><units>kPa</units><MATH equation="X*0.1"><VAR id="X"/></MATH><rangelow>80</rangelow><rangehigh>250</rangehigh></XDFCONSTANT>
+<XDFTABLE uniqueid="0x2"><title>点火提前(示例 4x4)</title><XDFAXIS id="z"><EMBEDDEDDATA mmedaddress="0x20" mmedelementsizebits="8" mmedrowcount="4" mmedcolcount="4" mmedtypeflags="0x0"/><units>°</units><MATH equation="X*0.75-24"><VAR id="X"/></MATH></XDFAXIS></XDFTABLE></XDFFORMAT>`;
+  const rom = new Uint8Array(0x100);
+  new DataView(rom.buffer).setUint16(0x10, 1500, false); // 150 kPa
+  for (let i = 0; i < 16; i++) rom[0x20 + i] = 140 + (i % 4) * 4; // 点火基准
+  return { xml, rom };
+}
+
+function loadXdfText(xml: string): void {
+  try {
+    mapState.maps = parseXdf(xml, { endian: 'big' });
+    renderMapList();
+    $('map-status').textContent = `已载入 ${mapState.maps.length} 个 map${mapState.rom ? '' : '（还需载入 ROM 才能读值）'}`;
+  } catch (e) {
+    $('map-status').textContent = 'XDF 解析失败：' + errorText(e);
+  }
+}
+
+async function loadRomFile(file: File): Promise<Uint8Array> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (file.name.endsWith('.mrbk')) {
+    const { decodeBackup } = await import('./platform/backup-file');
+    return (await decodeBackup(bytes)).data;
+  }
+  return bytes;
+}
+
+function renderMapList(): void {
+  const box = $('map-list');
+  if (!mapState.maps.length) {
+    box.replaceChildren();
+    return;
+  }
+  $<HTMLButtonElement>('map-export').disabled = !mapState.rom;
+  const rom = mapState.rom;
+  box.replaceChildren(
+    ...mapState.maps.map((m) => {
+      const card = el('div');
+      card.style.cssText = 'border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0';
+      const head = el('div', { textContent: `${m.title}  ·  ${m.kind === 'scalar' ? '标量' : `${m.rows}×${m.cols} 表`}  ${m.unit ? '(' + m.unit + ')' : ''}` });
+      head.style.fontWeight = '600';
+      card.append(head);
+      card.append(el('p', { className: 'hint', textContent: `地址 0x${m.address.toString(16)} · ${m.sizeBits}位${m.signed ? '有符号' : ''} · ${m.linear ? '可改' : '只读(非线性)'}` }));
+      if (!rom) {
+        card.append(el('p', { className: 'hint', textContent: '载入 ROM 后显示数值。' }));
+        return card;
+      }
+      let values: number[];
+      try {
+        values = readMap(rom, m);
+      } catch (e) {
+        card.append(el('p', { className: 'err', textContent: '读取失败：' + errorText(e) }));
+        return card;
+      }
+      const status = el('p', { className: 'hint' });
+      if (m.kind === 'scalar') {
+        status.textContent = `当前：${values[0].toFixed(2)} ${m.unit}`;
+        if (m.linear) {
+          const inp = el('input', { type: 'number', value: String(round2(values[0])) });
+          inp.style.cssText = 'width:120px;margin:0 8px 0 0';
+          const btn = el('button', { textContent: '应用' });
+          btn.addEventListener('click', () => {
+            mapState.rom = writeMap(mapState.rom!, m, [Number(inp.value)]);
+            renderMapList();
+            $('map-status').textContent = `已改「${m.title}」→ ${readMap(mapState.rom!, m)[0].toFixed(2)} ${m.unit}`;
+          });
+          const row = el('div', { className: 'row wrap' });
+          row.append(inp, btn);
+          card.append(status, row);
+        } else card.append(status);
+      } else {
+        const st = mapStats(values);
+        status.textContent = `最小 ${round2(st.min)} / 平均 ${round2(st.mean)} / 最大 ${round2(st.max)} ${m.unit}`;
+        card.append(status);
+        if (m.linear) {
+          const pct = el('input', { type: 'number', value: '100' });
+          pct.style.cssText = 'width:90px;margin:0 8px 0 0';
+          const btn = el('button', { textContent: '整体 ×% 应用' });
+          btn.addEventListener('click', () => {
+            const f = (Number(pct.value) || 100) / 100;
+            if (!confirm(`把「${m.title}」整张表 ×${pct.value}%？改的是文件副本，刷写前会被范围钳制。`)) return;
+            mapState.rom = writeMap(mapState.rom!, m, readMap(mapState.rom!, m).map((v) => v * f));
+            renderMapList();
+            $('map-status').textContent = `已把「${m.title}」×${pct.value}%`;
+          });
+          const row = el('div', { className: 'row wrap' });
+          row.append(el('span', { className: 'hint', textContent: '整体缩放' }), pct, btn);
+          card.append(row);
+        }
+      }
+      return card;
+    }),
+  );
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function setupMapPanel(): void {
+  $('map-xdf').addEventListener('click', () => $('map-xdf-file').click());
+  $('map-rom').addEventListener('click', () => $('map-rom-file').click());
+  $('map-xdf-file').addEventListener('change', async (e) => {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    (e.target as HTMLInputElement).value = '';
+    if (f) loadXdfText(await f.text());
+  });
+  $('map-rom-file').addEventListener('change', async (e) => {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    (e.target as HTMLInputElement).value = '';
+    if (!f) return;
+    try {
+      mapState.rom = await loadRomFile(f);
+      renderMapList();
+      $('map-status').textContent = `已载入 ROM ${Math.round(mapState.rom.length / 1024)} KB${mapState.maps.length ? '' : '（还需导入 XDF）'}`;
+    } catch (err) {
+      $('map-status').textContent = '载入 ROM 失败：' + errorText(err);
+    }
+  });
+  $('map-demo').addEventListener('click', () => {
+    const { xml, rom } = demoXdfAndRom();
+    mapState.rom = rom;
+    loadXdfText(xml);
+    $('map-status').textContent = '已载入演示 XDF + ROM，可试改。';
+  });
+  $('map-export').addEventListener('click', async () => {
+    if (!mapState.rom) return;
+    await saveFile(`rom_modified_${new Date().toISOString().slice(0, 10)}.bin`, mapState.rom);
+  });
+}
+
 function init(): void {
   buildLinkSeg();
   if (DESKTOP) setupSerialChooser();
   setupRecordTab();
+  setupMapPanel();
   $('module').addEventListener('change', (ev) => {
     const m = getModule((ev.target as HTMLSelectElement).value);
     if (!m || m.status === 'reserved') return;
