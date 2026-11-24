@@ -23,6 +23,8 @@ const PETROL: SubModel[] = [
   { code: 'M274', name: '2.0L 直四涡轮汽油', years: '2011–', powertrains: [{ code: 'M274', desc: '2.0T', ecu: 'Bosch MED17.7.x' }] },
   { code: 'M276', name: '3.0/3.5L V6 汽油', years: '2010–', powertrains: [{ code: 'M276', desc: 'V6', ecu: 'Bosch MED17.7.x' }] },
   { code: 'M133/M139', name: 'AMG 2.0L 涡轮', years: '2013–', powertrains: [{ code: 'M133', desc: 'AMG A45 等', ecu: 'Bosch MED17' }] },
+  { code: 'M177', name: 'AMG 4.0L V8 双涡轮（C63/E63/GLC63/GLE63 等）', years: '2015–', powertrains: [{ code: 'M177', desc: '4.0 V8 Biturbo', ecu: 'Bosch MED17.9.x（双 ECU）' }] },
+  { code: 'M178', name: 'AMG 4.0L V8 双涡轮（AMG GT）', years: '2014–', powertrains: [{ code: 'M178', desc: '4.0 V8 Biturbo（干式油底壳）', ecu: 'Bosch MED17.9.x（双 ECU）' }] },
 ];
 
 function variant(id: string, label: string, subModels: SubModel[]): Variant {
