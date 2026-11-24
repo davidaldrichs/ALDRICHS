@@ -15,6 +15,8 @@ export interface FlashOptions {
   backupFirst: boolean;
   /** 最低允许电压，低于此值拒绝刷写，避免中途断电变砖 */
   minVoltage: number;
+  /** 写完后读回比对（恢复原厂备份时必须开启） */
+  verifyAfterWrite?: boolean;
 }
 
 export interface FlashResult {
@@ -81,12 +83,28 @@ export class FlashRunner {
     ctx.report(0.9, '修正校验和…');
     await this.provider.finalizeChecksum(ctx, opts.region);
 
-    // 6) 复位
+    // 6) 读回校验
+    if (opts.verifyAfterWrite) {
+      ctx.report(0.93, '读回校验…');
+      const readBack = await this.provider.readRegion(ctx, opts.region);
+      const bad = firstDiff(readBack, opts.image);
+      if (bad >= 0) {
+        throw new Error(`读回校验失败：第 0x${bad.toString(16)} 字节不一致。请不要断电，立即重新恢复备份。`);
+      }
+    }
+
+    // 7) 复位
     ctx.report(0.97, '复位 ECU…');
     await this.provider.reset(ctx);
     ctx.report(1, '刷写完成');
     return { backup };
   }
+}
+
+function firstDiff(a: Uint8Array, b: Uint8Array): number {
+  if (a.length !== b.length) return Math.min(a.length, b.length);
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return i;
+  return -1;
 }
 
 async function assertVoltage(ctx: FlashContext, min: number): Promise<void> {

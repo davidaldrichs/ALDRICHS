@@ -25,7 +25,16 @@
 | ELM327 经典蓝牙（SPP） | 计划中 | ❌ iPhone 系统不允许 |
 | K+DCAN USB 线 | 计划中（需 OTG） | ❌ |
 
-## 还没做的：隐藏功能编码和 ECU 刷写
+## 一键备份 / 恢复原厂程序
+
+在“编码/刷写”页，连接后可以：
+
+- **一键备份原厂程序**：读出 ECU 程序，存成 `.mrbk` 文件。文件里记录了 VIN、标定号和 SHA-256。
+- **从备份恢复**：恢复前先检查文件有没有损坏、是不是这辆车的备份，再检查电压是否不低于 12.5V。确认后自动备份当前程序，再写入、修正校验和，最后读回逐字节核对。
+
+目前只有“演示模式”（模拟 ECU）能实际体验，真车读写要等对应车型的 `FlashProvider` 验证完成后开放。原厂程序从哪来、开源现状和路线图见 [docs/ecu-flashing-research.md](docs/ecu-flashing-research.md)。
+
+## 还没做的：隐藏功能编码和真车 ECU 刷写
 
 这两项要用宝马私有协议（BMW-FAST / KWP2000 / D-CAN），刷写还需要通过 ECU 的安全认证（seed/key）并修正程序校验和，写错可能让 ECU 变砖、车无法启动。
 所以这两项必须在真车和备用 ECU 上逐项验证后才会开放，目前 App 里只显示说明。在此之前请用成熟工具：BimmerCode（编码）、Deep OBD（开源，安卓）、专业刷写工具（刷前务必备份原厂程序，并接稳压电源）。
@@ -106,7 +115,9 @@ npm run dist:win     # 生成 release/ 里的便携版和安装版 exe
 
 ```
 src/platform/vehicle-module.ts  框架核心：VehicleModule / FlashProvider 接口
-src/platform/flash-runner.ts    通用刷写流程调度 + 刷前安全检查
+src/platform/flash-runner.ts    通用刷写流程调度 + 刷前安全检查 + 读回校验
+src/platform/backup-file.ts     .mrbk 备份格式、防刷错车检查
+src/modules/demo-flash.ts       演示模式的模拟 ECU（seed/key、校验和）
 src/modules/registry.ts         车型模块注册表（MINI 可用，其它品牌预留）
 src/modules/mini-r.ts           MINI R 模块：变体/底盘、VIN 识别、专属故障码
 src/core/elm327.ts     ELM327 驱动：命令队列、响应清理、CAN 多帧解析
@@ -118,5 +129,6 @@ src/transport/desktop-*.ts   电脑版连接：串口(Web Serial)、WiFi(TCP)
 electron/main.cjs      Electron 主进程：窗口 + TCP + 串口选择
 electron/preload.cjs    向页面安全暴露桌面能力
 src/main.ts            界面逻辑（注册表驱动，按平台切换连接方式）
-tests/obd.test.ts      测试（协议解析 + 一/二代模拟车 + 框架与刷写流程）
+tests/obd.test.ts      测试（协议解析 + 一/二代模拟车 + 框架）
+tests/flash.test.ts    测试（备份格式、防刷错车、一键备份/恢复、电压/中断保护）
 ```

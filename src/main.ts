@@ -6,6 +6,10 @@ import { MODULES, availableModules, getModule, reservedModules } from './modules
 import type { VehicleModule, Variant } from './platform/vehicle-module';
 import type { Transport } from './transport/transport';
 import { SimulatorTransport } from './transport/simulator';
+import { demoFlash } from './modules/demo-flash';
+import { FlashCancelled, FlashRunner } from './platform/flash-runner';
+import { backupFileName, checkRestore, decodeBackup, encodeBackup } from './platform/backup-file';
+import type { FlashContext, FlashProvider } from './platform/vehicle-module';
 import { desktop, isDesktop, type SerialPortItem } from './transport/desktop-api';
 
 type LinkKind = 'ble' | 'wifi' | 'serial' | 'demo';
@@ -22,6 +26,8 @@ const state = {
   elm: null as Elm327 | null,
   obd: null as ObdService | null,
   liveRunning: false,
+  flashing: false,
+  vehicle: null as { vin: string | null; calIds: string[] } | null,
 };
 
 function describeDtc(code: string): string {
@@ -196,12 +202,18 @@ async function disconnect(): Promise<void> {
   state.liveRunning = false;
   const t = state.transport;
   state.transport = state.elm = state.obd = null;
+  state.vehicle = null;
   if (t) await t.close().catch(() => undefined);
   setStatus('off', '未连接');
   $('btn-connect').textContent = '连接';
+  renderFlashPanel();
 }
 
 async function connect(): Promise<void> {
+  if (state.flashing) {
+    alert('正在读写 ECU，完成前不能断开！');
+    return;
+  }
   if (state.transport) {
     await disconnect();
     return;
@@ -234,6 +246,7 @@ async function connect(): Promise<void> {
     setStatus('on', info.isCan ? '已连接 · CAN' : '已连接 · K-Line');
     $('btn-connect').textContent = '断开';
     renderGauges();
+    renderFlashPanel();
     switchTab('dtc');
   } catch (e) {
     log('info', `连接失败：${errorText(e)}`);
@@ -304,6 +317,10 @@ async function toggleLive(): Promise<void> {
   const btn = $<HTMLButtonElement>('btn-live');
   if (state.liveRunning) {
     state.liveRunning = false;
+    return;
+  }
+  if (state.flashing) {
+    alert('正在读写 ECU，请等完成后再看仪表');
     return;
   }
   const obd = requireObd();
@@ -461,17 +478,188 @@ function renderCaps(): void {
   renderReserved();
 }
 
+/* ---------------- 一键备份 / 恢复（刷写窗口） ---------------- */
+
+function currentFlashProvider(): FlashProvider | null {
+  if (!state.transport) return null;
+  if (state.transport instanceof SimulatorTransport) return demoFlash;
+  return state.module.flash ?? null;
+}
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}): HTMLElementTagNameMap[K] {
+  return Object.assign(document.createElement(tag), props);
+}
+
 function renderFlashPanel(): void {
   const box = $('flash-panel');
   const m = state.module;
-  if (m.flash) {
-    const p = cell('p', `本车型已开放刷写，可读写 ${m.flash.regions.length} 个内存区。刷写前请接稳压电源并备份原厂程序。`);
-    box.replaceChildren(p);
-  } else {
-    const p = cell('p', `「${m.name}」的刷写窗口已在框架中预留，但尚未开放——刷写流程（会话→seed/key→擦写→校验→复位）已通用化，待在真车和备用 ECU 上验证私有协议后即可开放。`);
-    const hint = Object.assign(cell('p', '在此之前请使用成熟工具：BimmerCode（编码）、Deep OBD（开源，安卓）。'), { className: 'hint' });
-    box.replaceChildren(p, hint);
+  const provider = currentFlashProvider();
+
+  if (!provider) {
+    const msg = state.transport
+      ? `「${m.name}」的刷写窗口已在框架中预留，但真车读写尚未开放——需要先在备用 ECU 上验证 seed/key、内存布局和校验和。可以先用“演示模式”体验一键备份/恢复的完整流程。`
+      : '连接车辆后可在这里一键备份原厂程序、从备份恢复。没有车可以用“演示模式”体验。';
+    box.replaceChildren(el('p', { textContent: msg }));
+    return;
   }
+
+  const isDemo = provider === demoFlash;
+  const regionSel = el('select', { id: 'flash-region' });
+  regionSel.replaceChildren(...provider.regions.map((r, i) => new Option(`${r.name}（0x${r.address.toString(16).toUpperCase()}，${Math.round(r.size / 1024)} KB）`, String(i))));
+  const backupBtn = el('button', { className: 'primary', textContent: '一键备份原厂程序' });
+  const restoreBtn = el('button', { className: 'danger', textContent: '从备份恢复…' });
+  const fileInput = el('input', { type: 'file', accept: '.mrbk', hidden: true });
+  const progress = el('progress', { max: 1, value: 0 });
+  progress.style.cssText = 'width:100%;margin-top:10px';
+  progress.hidden = true;
+  const status = el('p', { className: 'hint' });
+  const cancelBtn = el('button', { textContent: '取消' });
+  cancelBtn.hidden = true;
+
+  const label = el('label', { textContent: '内存区' });
+  label.append(regionSel);
+  const row = el('div', { className: 'row wrap' });
+  row.style.marginTop = '10px';
+  row.append(backupBtn, restoreBtn, cancelBtn);
+  const help = el('p', {
+    className: 'hint',
+    textContent:
+      '备份：读出 ECU 原厂程序，存成 .mrbk 文件（含 VIN 和 SHA-256，换车或文件损坏都会被拒绝）。恢复：先自动备份当前程序，再写回、修正校验和、读回逐字节核对。全程不要熄火、断电或拔适配器，建议接充电器/稳压电源。',
+  });
+  box.replaceChildren(
+    ...(isDemo ? [el('p', { className: 'hint', textContent: '演示模式：读写的是模拟 ECU，不会碰真车。' })] : []),
+    label,
+    row,
+    progress,
+    status,
+    help,
+    fileInput,
+  );
+
+  let cancelled = false;
+  const setBusy = (busy: boolean) => {
+    state.flashing = busy;
+    backupBtn.disabled = restoreBtn.disabled = regionSel.disabled = busy;
+    cancelBtn.hidden = !busy;
+    progress.hidden = !busy;
+    $<HTMLButtonElement>('btn-connect').disabled = busy;
+  };
+  const ctx = (): FlashContext => ({
+    elm: state.elm!,
+    obd: state.obd!,
+    report: (p, msg) => {
+      progress.value = Math.max(0, Math.min(1, p));
+      status.textContent = msg;
+    },
+    cancelled: () => cancelled,
+  });
+  const region = () => provider.regions[Number(regionSel.value) || 0];
+  cancelBtn.addEventListener('click', () => {
+    cancelled = true;
+    status.textContent = '正在取消…';
+  });
+
+  backupBtn.addEventListener('click', async () => {
+    cancelled = false;
+    state.liveRunning = false;
+    setBusy(true);
+    try {
+      const car = await carIdentity();
+      const r = region();
+      const data = await new FlashRunner(provider).backup(ctx(), r);
+      if (cancelled) throw new FlashCancelled();
+      const meta = { module: m.id, variant: state.variant.id, vin: car.vin, calIds: car.calIds, region: { name: r.name, address: r.address, size: r.size } };
+      const file = await encodeBackup(meta, data);
+      await saveFile(backupFileName(meta), file);
+      status.textContent = `备份完成：${Math.round(data.length / 1024)} KB，已保存。请把文件放在安全的地方（建议再复制一份到网盘）。`;
+      log('info', `备份完成 ${r.name} ${data.length} 字节`);
+    } catch (e) {
+      status.textContent = e instanceof FlashCancelled ? '已取消备份' : `备份失败：${errorText(e)}`;
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  restoreBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files?.[0];
+    fileInput.value = '';
+    if (!f) return;
+    cancelled = false;
+    let backup;
+    try {
+      backup = await decodeBackup(new Uint8Array(await f.arrayBuffer()));
+    } catch (e) {
+      alert(errorText(e));
+      return;
+    }
+    const car = await carIdentity().catch(() => ({ vin: null, calIds: [] as string[] }));
+    const target = provider.regions.find((r) => r.name === backup.header.region.name);
+    const check = checkRestore(backup.header, { module: m.id, vin: car.vin }, target);
+    if (check.blockers.length) {
+      alert('不能恢复这份备份：\n\n' + check.blockers.map((b) => '• ' + b).join('\n'));
+      return;
+    }
+    const lines = [
+      `备份：${backup.header.region.name}，${Math.round(backup.data.length / 1024)} KB，${backup.header.createdAt.slice(0, 16).replace('T', ' ')}`,
+      `VIN：${backup.header.vin ?? '未知'}`,
+      ...check.warnings.map((w) => '⚠ ' + w),
+      '',
+      '恢复会覆盖 ECU 当前程序（会先自动备份当前程序）。',
+      '过程中不要熄火、断电、拔适配器，否则 ECU 可能变砖。',
+      '',
+      '确定开始恢复吗？',
+    ];
+    if (!confirm(lines.join('\n'))) return;
+    state.liveRunning = false;
+    setBusy(true);
+    try {
+      const res = await new FlashRunner(provider).flash(ctx(), {
+        region: target!,
+        image: backup.data,
+        backupFirst: true,
+        minVoltage: 12.5,
+        verifyAfterWrite: true,
+      });
+      if (res.backup) {
+        const meta = { module: m.id, variant: state.variant.id, vin: car.vin, calIds: car.calIds, region: { name: target!.name, address: target!.address, size: target!.size } };
+        await saveFile('pre-restore_' + backupFileName(meta), await encodeBackup(meta, res.backup));
+      }
+      status.textContent = '恢复完成，读回校验一致。已另存一份恢复前的程序。请熄火 10 秒后再启动。';
+      log('info', `恢复完成 ${target!.name}`);
+    } catch (e) {
+      status.textContent = e instanceof FlashCancelled ? '已取消（尚未写入）' : `恢复失败：${errorText(e)}`;
+      if (!(e instanceof FlashCancelled)) alert(`恢复失败：${errorText(e)}\n\n不要断电，保持连接，再执行一次“从备份恢复”。`);
+    } finally {
+      setBusy(false);
+    }
+  });
+}
+
+/** 读取并缓存本车身份（VIN、标定号），备份文件用它防止刷错车 */
+async function carIdentity(): Promise<{ vin: string | null; calIds: string[] }> {
+  if (state.vehicle) return state.vehicle;
+  const obd = state.obd;
+  if (!obd) return { vin: null, calIds: [] };
+  const v = await obd.readVehicleInfo();
+  state.vehicle = { vin: v.vin, calIds: v.calIds };
+  return state.vehicle;
+}
+
+/** 保存文件：手机上用系统分享，电脑/浏览器直接下载 */
+async function saveFile(name: string, bytes: Uint8Array): Promise<void> {
+  const file = new File([bytes as BlobPart], name, { type: 'application/octet-stream' });
+  const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean };
+  if ((platform === 'ios' || platform === 'android') && nav.canShare?.({ files: [file] })) {
+    await navigator.share({ files: [file], title: name });
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = el('a', { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function renderReserved(): void {

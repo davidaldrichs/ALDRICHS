@@ -43,6 +43,7 @@ export const miniR: VehicleModule = {
     { name: 'VIN / 标定号 / CVN', status: 'ready' },
     { name: '读取全车模块故障（ABS、气囊、车身等）', status: 'planned', note: '需 K+DCAN，开发中' },
     { name: '隐藏功能编码', status: 'planned', note: '需宝马私有协议，开发中' },
+    { name: '一键备份 / 恢复原厂程序', status: 'planned', note: '框架完成，演示模式可体验；真车待验证' },
     { name: 'ECU 刷写（动力程序）', status: 'planned', note: '需 seed/key + 校验和，验证后开放' },
   ],
 

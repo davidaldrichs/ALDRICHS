@@ -1,0 +1,66 @@
+# ECU 刷写调研与路线图
+
+调研时间：2026-11。结论用于指导本项目“全平台刷写框架”的后续开发。
+
+## 1. 原厂程序从哪来
+
+**不从网上下载。** BMW/MINI 的原厂刷写数据（ISTA/SDP、psdzdata）是宝马的版权内容，只通过经销商授权系统分发；网上流传的都是盗版，本项目不使用。而且下载来的程序版本未必和车上的 ECU 硬件、软件号对得上，刷下去容易变砖。
+
+**从车上读。** 正确做法是先把这辆车 ECU 里的原厂程序读出来存档。读出来的就是和这辆车 100% 匹配的原厂程序。所有正规刷写工具（开源的 VW_Flash，商业的 FoxFlash、KT200 等）都遵循“先读原厂 → 再改 → 再写”的流程，手里永远保留这辆车的原始备份。
+
+## 2. 开源项目现状
+
+| 项目 | 用途 | 对本项目的价值 |
+| --- | --- | --- |
+| [bri3d/VW_Flash](https://github.com/bri3d/VW_Flash) | 大众 Simos/MED17 的 UDS 刷写，含压缩、加密、校验和修正 | 最成熟的开源刷写范例，流程和校验和思路可以直接参考 |
+| [HowIGotHere/ZephyrFlasher](https://github.com/HowIGotHere/ZephyrFlasher) | VW_Flash 的 iOS 移植 | 手机刷写的先例 |
+| [dspl1236/VAGFlasher](https://github.com/dspl1236/VAGFlasher) | 开源大众 ECU 刷写（ME17 / MED9 / ME7 / EDC17），不联网不订阅 | 结构清晰，可读出到文件 |
+| [variousdemeanors/tricore-bsl-engine](https://github.com/variousdemeanors/tricore-bsl-engine) | TriCore TC1767 芯片级 CAN 引导读取 / 备份 | 理论上适用于任何 TC1767 ECU；需要拆 ECU 上台架，未在 MEVD17 上实测，写入有变砖风险 |
+| [matiss/motronic-checksum](https://github.com/matiss/motronic-checksum) | Bosch Motronic 校验和修正 | 校验和算法参考 |
+| [pylessard/python-udsoncan](https://github.com/pylessard/python-udsoncan) | UDS（ISO 14229）完整实现 | 协议栈参考 |
+| [natanaelfejes/kline](https://github.com/natanaelfejes/kline) | Rust 版 K-Line / KWP2000 | MINI 一代 K-Line 参考 |
+| [RomRaider/RomRaider](https://github.com/RomRaider/RomRaider)、[LibreTuner/LibreTuner](https://github.com/LibreTuner/LibreTuner) | 开源调校，ECU 定义文件 | “用定义文件描述每种 ECU”的架构思路 |
+| [zer02dev/BimmerDaten](https://github.com/zer02dev/BimmerDaten)、[radelbro/BimmerDis](https://github.com/radelbro/BimmerDis) | BMW EDIABAS / NCS 数据解析 | MINI 编码（非刷写）参考 |
+| [CaringCaribou/caringcaribou](https://github.com/CaringCaribou/caringcaribou) | CAN 总线探测 | 逆向新车型时扫描 ECU 和服务 |
+
+**MINI / BMW 没有现成的开源刷写器。** 针对 MEVD17 / MED17 读写、seed/key、校验和修正的成熟方案都是收费工具（FormulaFlash、BitBox、FoxFlash、KT200 等）。
+
+## 3. MINI R 系列的 ECU
+
+| 代 | 发动机 | ECU | 芯片 | 刷写难度 |
+| --- | --- | --- | --- | --- |
+| 一代 R50/R52/R53 | W10/W11 汽油 | Siemens EMS2000 | 较老的 MCU | 开源资料极少 |
+| 二代 R55–R61 | N12/N16 汽油 | Siemens MEV17 / MEV17.2 | — | 开源资料少 |
+| 二代 R55–R61 | N14/N18 汽油 | Bosch MED17.2 / MEVD17.2.2 | Infineon TriCore | 有商业工具，无开源 |
+| 二代 R55–R61 | 柴油 | Bosch EDC16C34 / EDC17 | TriCore（EDC17） | 有商业工具，无开源 |
+
+注意事项：
+
+- 不同资料对 MEVD17.2 的芯片型号说法不一（TC1767 / TC1797 / TC1793），动手前必须拆开确认实物型号。
+- 这类 ECU 往往不能只靠 OBD 口完整读出全部程序，常需要“台架读”（拆下 ECU，进 boot 模式）。
+- 有的版本部分区域有写保护，需要先读出密码。
+- 参考：[FormulaFlash 台架读写 MEVD17.2.3](https://formulaflash.org/formulaflash-read-write-bmw-mevd17-2-3-ecu-on-bench-successfully/)、[FoxFlash/KT200 克隆 MEDC17](https://www.obdexpress.co.uk/service/clone-bosch-medc17-with-foxflash-kt200.html)。以上均为厂商或论坛资料，未经独立验证。
+
+## 4. “傻瓜刷写”的设计
+
+按钮可以做到“一键”，但难的不是按钮，而是每种 ECU 的 seed/key、内存布局、校验和，以及一份经过验证的程序。框架已经把通用部分做好，各车型只需补上差异：
+
+```
+一键备份：识别 ECU → 编程会话 → seed/key 解锁 → 分块读出 → 存 .mrbk（含 VIN、标定号、SHA-256）
+一键恢复：校验文件 → 核对是不是这辆车 → 检查电压 → 自动备份当前程序 → 写入 → 修正校验和 → 读回逐字节核对 → 复位
+```
+
+内置的防呆保护：
+
+- 备份文件记录 VIN 和 SHA-256。文件损坏、换了车、换了 ECU 型号，都会拒绝恢复。
+- 电压低于 12.5V 时拒绝写入。
+- 写入前自动备份当前程序，写完读回逐字节比对。
+- 读写过程中禁止断开连接、禁止读取仪表数据（防止和读写抢通讯）。
+
+## 5. 路线图
+
+1. **已完成**：通用刷写流程（`FlashRunner`）、备份文件格式（`.mrbk`）、一键备份/恢复界面、演示模式下的模拟 ECU（`DemoFlashProvider`），并有测试覆盖。
+2. **下一步，二选一**：
+   - **大众 MQB**：照 VW_Flash 实现第一个真·刷写模块，开源资料最全，最有可能先在真车上跑通。
+   - **MINI 二代**：准备一块备用 MEVD17/MED17 ECU 和台架，确认芯片型号；先实现“只读备份”，验证 seed/key 和内存布局。
+3. **再往后**：改程序（调校）。注意：修改动力程序会影响排放合规、年检和质保。
