@@ -582,6 +582,106 @@ function renderTuningPanel(): void {
   const status = el('p', { className: 'hint', id: 'tuning-status' });
   children.push(status);
   box.replaceChildren(...children);
+  renderAiAdvisor(box, tuning);
+}
+
+/* ---------------- AI 调校顾问（护栏：只在安全范围内建议，人工确认） ---------------- */
+
+interface AiCfg {
+  provider: 'openai' | 'anthropic';
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  goal: string;
+}
+function loadAiCfg(): AiCfg {
+  const d: AiCfg = { provider: 'openai', endpoint: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', goal: '小幅提升动力，保守安全' };
+  try {
+    return { ...d, ...(JSON.parse(localStorage.getItem('aiCfg') ?? '{}') as Partial<AiCfg>) };
+  } catch {
+    return d;
+  }
+}
+function saveAiCfg(c: AiCfg): void {
+  try {
+    localStorage.setItem('aiCfg', JSON.stringify(c));
+  } catch {
+    /* ignore */
+  }
+}
+
+function renderAiAdvisor(box: HTMLElement, tuning: TuningProvider): void {
+  const cfg = loadAiCfg();
+  const wrap = el('div');
+  wrap.style.cssText = 'margin-top:14px;border-top:1px solid var(--line);padding-top:12px';
+  const warn = el('p', { className: 'hint', textContent: '⚠️ AI 调校（实验）：AI 只在上面这些有范围的参数内提建议，超范围会被自动钳制，需你逐项确认才生效，不自动刷写。不碰生马力 map。' });
+  const goal = el('textarea');
+  goal.value = cfg.goal;
+  goal.rows = 2;
+  goal.placeholder = '调校目标，例如：小幅提升动力，保守安全';
+  goal.style.cssText = 'width:100%;margin:6px 0;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;font:inherit';
+
+  const provSel = el('select');
+  provSel.replaceChildren(new Option('OpenAI 兼容', 'openai'), new Option('Anthropic', 'anthropic'));
+  provSel.value = cfg.provider;
+  const endpoint = el('input', { value: cfg.endpoint, placeholder: '接口地址' });
+  const model = el('input', { value: cfg.model, placeholder: '模型，如 gpt-4o-mini' });
+  const key = el('input', { type: 'password', value: cfg.apiKey, placeholder: 'API Key（只存在本机）' });
+  for (const i of [endpoint, model, key]) i.style.cssText = 'width:100%;margin:4px 0;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px';
+  const getBtn = el('button', { className: 'primary', textContent: '获取 AI 建议' });
+  const result = el('div');
+  result.style.marginTop = '10px';
+
+  const persist = () => saveAiCfg({ provider: provSel.value as AiCfg['provider'], endpoint: endpoint.value.trim(), apiKey: key.value, model: model.value.trim(), goal: goal.value });
+  for (const elm of [goal, provSel, endpoint, model, key]) elm.addEventListener('change', persist);
+  provSel.addEventListener('change', () => {
+    if (provSel.value === 'anthropic' && endpoint.value.includes('openai')) endpoint.value = 'https://api.anthropic.com';
+    if (provSel.value === 'openai' && endpoint.value.includes('anthropic')) endpoint.value = 'https://api.openai.com/v1';
+    persist();
+  });
+
+  getBtn.addEventListener('click', async () => {
+    persist();
+    if (!key.value.trim()) {
+      alert('请先填 API Key');
+      return;
+    }
+    getBtn.disabled = true;
+    result.replaceChildren(el('p', { className: 'hint', textContent: 'AI 思考中…' }));
+    try {
+      const { proposeTuning } = await import('./platform/ai-tuning');
+      const { httpAiClient } = await import('./platform/ai-client-http');
+      const client = httpAiClient({ provider: provSel.value as 'openai' | 'anthropic', endpoint: endpoint.value.trim(), apiKey: key.value, model: model.value.trim() });
+      const advice = await proposeTuning(tuning, goal.value, client);
+      const nodes: HTMLElement[] = [];
+      if (advice.notes) nodes.push(el('p', { className: 'hint', textContent: 'AI 说明：' + advice.notes }));
+      if (!advice.proposals.length) nodes.push(el('p', { className: 'hint', textContent: 'AI 没有提出范围内的改动。' }));
+      for (const pr of advice.proposals) {
+        const row = el('div');
+        row.style.cssText = 'border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0';
+        const title = el('div', { textContent: `${pr.name}: ${String(pr.from)} → ${String(pr.to)}${pr.clamped ? '（已钳到安全值）' : ''}` });
+        title.style.fontWeight = '600';
+        const why = el('p', { className: 'hint', textContent: pr.rationale });
+        const apply = el('button', { textContent: '应用这一项' });
+        apply.addEventListener('click', () => {
+          tuning.set(pr.id, pr.to);
+          apply.textContent = '已应用 ✓';
+          apply.disabled = true;
+          renderTuningPanel(); // 刷新上面的控件值
+        });
+        row.append(title, why, apply);
+        nodes.push(row);
+      }
+      result.replaceChildren(...nodes);
+    } catch (e) {
+      result.replaceChildren(el('p', { className: 'err', textContent: 'AI 调用失败：' + errorText(e) }));
+    } finally {
+      getBtn.disabled = false;
+    }
+  });
+
+  wrap.append(warn, goal, provSel, endpoint, model, key, getBtn, result);
+  box.append(wrap);
 }
 
 function flashNote(s: { name: string }): void {

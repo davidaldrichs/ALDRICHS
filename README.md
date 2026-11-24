@@ -122,6 +122,8 @@ src/platform/uds.ts             真实 UDS 刷写协议（10/27/34/36/37/31/11�
 src/platform/uds-sim.ts         模拟 UDS ECU（演示/测试用，真实回应各服务）
 src/platform/daimler.ts         奔驰/戴姆勒 解锁算法（开源移植，自洽验证）
 src/platform/tuning.ts          编码/调校模型（隐藏功能、大循环温度等）
+src/platform/ai-tuning.ts       AI 调校顾问（只在安全范围内建议，强制钳制，人工确认）
+src/platform/ai-client-http.ts  AI 接口客户端（OpenAI 兼容 / Anthropic）
 src/platform/flash-runner.ts    通用刷写流程调度 + 刷前安全检查 + 读回校验
 src/platform/backup-file.ts     .mrbk 备份格式、防刷错车检查
 src/modules/demo-flash.ts       演示模式的模拟 ECU（seed/key、校验和）

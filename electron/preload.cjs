@@ -15,4 +15,7 @@ contextBridge.exposeInMainWorld('desktop', {
   tcpClose: (id) => ipcRenderer.send('tcp:close', { id }),
   onTcpData: (cb) => ipcRenderer.on('tcp:data', (_e, m) => cb(m)),
   onTcpClose: (cb) => ipcRenderer.on('tcp:close', (_e, m) => cb(m)),
+
+  // AI 接口转发
+  aiFetch: (url, headers, body) => ipcRenderer.invoke('ai:fetch', { url, headers, body }),
 });

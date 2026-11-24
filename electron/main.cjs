@@ -90,6 +90,15 @@ ipcMain.on('tcp:close', (_e, { id }) => {
   }
 });
 
+/* ---------------- AI 接口转发（避免 CORS，key 不留在页面网络层）---------------- */
+
+ipcMain.handle('ai:fetch', async (_e, { url, headers, body }) => {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`AI 接口返回 ${res.status}: ${text.slice(0, 300)}`);
+  return text;
+});
+
 /* ---------------- 生命周期 ---------------- */
 
 if (!app.requestSingleInstanceLock()) {
