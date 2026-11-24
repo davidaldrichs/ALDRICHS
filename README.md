@@ -118,6 +118,7 @@ src/platform/vehicle-module.ts  框架核心：VehicleModule / FlashProvider 接
 src/platform/security-access.ts  seed/key 握手引擎（自动试算法、防锁定）
 src/platform/seedkey.ts         密钥算法库（通用算法，可加逆向出的真实算法）
 src/platform/sa2.ts             大众/奥迪 SA2 解锁算法（开源移植，已用测试向量验证）
+src/platform/daimler.ts         奔驰/戴姆勒 解锁算法（开源移植，自洽验证）
 src/platform/flash-runner.ts    通用刷写流程调度 + 刷前安全检查 + 读回校验
 src/platform/backup-file.ts     .mrbk 备份格式、防刷错车检查
 src/modules/demo-flash.ts       演示模式的模拟 ECU（seed/key、校验和）
@@ -136,4 +137,5 @@ tests/obd.test.ts      测试（协议解析 + 一/二代模拟车 + 框架）
 tests/flash.test.ts    测试（备份格式、防刷错车、一键备份/恢复、电压/中断保护）
 tests/unlock.test.ts   测试（seed/key 引擎：成功/锁定/无匹配/等待重试）
 tests/sa2.test.ts      测试（VAG SA2 解释器，对照官方测试向量）
+tests/daimler.test.ts  测试（奔驰算法：确定性、反推特性、字节序快照）
 ```

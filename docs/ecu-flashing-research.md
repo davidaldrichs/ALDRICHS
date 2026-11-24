@@ -96,3 +96,26 @@
 **已落地**：VAG SA2 解释器（`src/platform/sa2.ts`）。SA2 是一段每款 ECU 自带的字节码脚本,从该 ECU 的刷写数据（FRF/ODX）里取出脚本即可算 key。这是框架里第一个真实可用的解锁算法,等接入大众车型模块后,一键解锁对 VAG 就是真的。
 
 **结论**：MINI 一键解锁无法从开源填入,只能在备用 ECU 上逆向（且新款受 RSA 限制可能逆不出可用的 key）。VAG 则已具备真实解锁能力,是先在真车上验证整条链路的最佳选择。
+
+## 更新：奔驰 / 捷豹路虎
+
+**奔驰（Mercedes / Daimler）：开源覆盖最好,算法已移植。**
+- [jglim/UnlockECU](https://github.com/jglim/UnlockECU)（MIT）里奔驰的 seed/key 是自包含的线性算法（LCG + 异或私钥）,不像 BMW 那样 RSA 锁死。
+- 已移植到 `src/platform/daimler.ts`,三个变体（standard / refG / mod）。
+- ⚠️ 没有公开测试向量,只做了自洽/反推验证,未在真车核对。每台车的 K（私钥）要从该 ECU 定义数据取,或从一对已知 (seed,key) 反推（算法固有弱点）。
+
+**捷豹路虎（JLR）：开源里基本没有。**
+- 唯一相关的 [Ra3mbl/JLR-ECU-Bruteforcer](https://github.com/Ra3mbl/JLR-ECU-Bruteforcer) 只有一个 XML 配置表（各模块的安全等级、访问 DID）,**没有算法、没有代码**。
+- 没有公开的 JLR seed/key 算法,只能逐 ECU 逆向。
+
+**不做的事**：不实现通用的 security access 暴力破解工具（对任意车强行绕过解锁 = 偷车/非法改装手法）。现有“一键解锁”只试已知的公开算法并有次数上限,与暴力穷举钥匙空间是两回事。
+
+### 各平台开源解锁对照
+
+| 平台 | 开源解锁 | 本项目状态 |
+| --- | --- | --- |
+| 大众 VAG | ✅ SA2（MIT） | 已实现并用官方测试向量验证（sa2.ts） |
+| 奔驰 Daimler | ✅ 线性算法（MIT） | 已移植,自洽验证,待真车核对（daimler.ts） |
+| 标致/雪铁龙 PSA | ✅（GPL） | 未采用（GPL 传染许可） |
+| 捷豹路虎 JLR | ❌ 仅配置表 | 无算法,需逐 ECU 逆向 |
+| MINI / BMW | ❌ 私有,新款 RSA | 无,备份走 boot 模式绕过 |
