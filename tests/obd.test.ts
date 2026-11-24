@@ -157,8 +157,8 @@ describe('车型模块框架', () => {
 
   it('其它品牌作为预留窗口占位', () => {
     expect(reservedModules().length).toBeGreaterThan(0);
-    expect(availableModules().map((m) => m.id)).toEqual(['mini-r', 'mercedes', 'jlr']);
-    expect(MODULES.find((m) => m.id === 'vw-mqb')!.status).toBe('reserved');
+    expect(availableModules().map((m) => m.id)).toEqual(['mini-r', 'mercedes', 'jlr', 'vw']);
+    expect(MODULES.find((m) => m.id === 'bmw-fg')!.status).toBe('reserved');
   });
 
   it('MINI VIN 分析走模块', () => {
