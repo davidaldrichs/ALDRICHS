@@ -13,7 +13,9 @@ import type { SubModel, Variant, VehicleModule, VinAnalysis } from '../platform/
 const PETROL: SubModel[] = [
   { code: 'EA211', name: '1.0/1.4/1.5 TSI（Golf/Polo/A3 等）', years: '2012–', powertrains: [{ code: 'EA211', desc: 'TSI', ecu: 'Bosch MED17.5 / MG1CS001' }] },
   { code: 'EA888', name: '1.8/2.0 TSI（GTI/A4/Passat 等）', years: '2008–', powertrains: [{ code: 'EA888', desc: 'Gen2/Gen3 2.0T', ecu: 'Bosch MED17.5 / Simos18 / MG1' }] },
-  { code: 'EA839', name: '3.0 TFSI V6', years: '2016–', powertrains: [{ code: 'EA839', desc: '3.0 TFSI', ecu: 'Bosch MG1' }] },
+  { code: 'EA837', name: '3.0 TFSI 机械增压 V6（奥迪 S4/S5/A6/SQ5/Q7 等）', years: '2008–2017', powertrains: [{ code: 'EA837', desc: '3.0 TFSI SC V6', ecu: 'Bosch MED17.1 / MED17.1.1 / MED17.1.62' }] },
+  { code: 'EA839', name: '3.0 TFSI 涡轮 V6（新款）', years: '2016–', powertrains: [{ code: 'EA839', desc: '3.0 TFSI', ecu: 'Bosch MG1CS002' }] },
+  { code: 'EA825', name: '4.0 TFSI V8（奥迪 S/RS、保时捷）', years: '2012–', powertrains: [{ code: 'EA825', desc: '4.0 TFSI V8', ecu: 'Bosch MED17 / MG1' }] },
 ];
 
 const DIESEL: SubModel[] = [
