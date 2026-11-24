@@ -506,6 +506,7 @@ function renderFlashPanel(): void {
   const isDemo = provider === demoFlash;
   const regionSel = el('select', { id: 'flash-region' });
   regionSel.replaceChildren(...provider.regions.map((r, i) => new Option(`${r.name}（0x${r.address.toString(16).toUpperCase()}，${Math.round(r.size / 1024)} KB）`, String(i))));
+  const unlockBtn = el('button', { textContent: '一键解锁（试算法）' });
   const backupBtn = el('button', { className: 'primary', textContent: '一键备份原厂程序' });
   const restoreBtn = el('button', { className: 'danger', textContent: '从备份恢复…' });
   const fileInput = el('input', { type: 'file', accept: '.mrbk', hidden: true });
@@ -520,6 +521,7 @@ function renderFlashPanel(): void {
   label.append(regionSel);
   const row = el('div', { className: 'row wrap' });
   row.style.marginTop = '10px';
+  if (provider.probeUnlock) row.append(unlockBtn);
   row.append(backupBtn, restoreBtn, cancelBtn);
   const help = el('p', {
     className: 'hint',
@@ -539,7 +541,7 @@ function renderFlashPanel(): void {
   let cancelled = false;
   const setBusy = (busy: boolean) => {
     state.flashing = busy;
-    backupBtn.disabled = restoreBtn.disabled = regionSel.disabled = busy;
+    unlockBtn.disabled = backupBtn.disabled = restoreBtn.disabled = regionSel.disabled = busy;
     cancelBtn.hidden = !busy;
     progress.hidden = !busy;
     $<HTMLButtonElement>('btn-connect').disabled = busy;
@@ -557,6 +559,30 @@ function renderFlashPanel(): void {
   cancelBtn.addEventListener('click', () => {
     cancelled = true;
     status.textContent = '正在取消…';
+  });
+
+  unlockBtn.addEventListener('click', async () => {
+    if (!provider.probeUnlock) return;
+    if (!isDemo && !confirm('一键解锁会向 ECU 试发多个密钥。密钥连续错误会让 ECU 临时锁定（一般等几分钟自动解除）。\n\n请确认已接稳压电源、点火开关打开。继续吗？')) return;
+    cancelled = false;
+    state.liveRunning = false;
+    setBusy(true);
+    progress.removeAttribute('value'); // 不确定进度，显示忙碌
+    try {
+      await provider.enterProgrammingSession(ctx());
+      const res = await provider.probeUnlock(ctx());
+      status.textContent = res.unlocked
+        ? `✓ 解锁成功，算法：${res.algorithm?.label ?? '（ECU 已解锁）'}（试了 ${res.attempts} 种）`
+        : `✗ 未解锁：${res.reason ?? '未知原因'}`;
+      log('info', `一键解锁 ${res.unlocked ? '成功 ' + (res.algorithm?.id ?? '') : '失败：' + (res.reason ?? '')}`);
+      await provider.reset(ctx()).catch(() => undefined);
+    } catch (e) {
+      status.textContent = `解锁出错：${errorText(e)}`;
+    } finally {
+      progress.value = 0;
+      progress.max = 1;
+      setBusy(false);
+    }
   });
 
   backupBtn.addEventListener('click', async () => {

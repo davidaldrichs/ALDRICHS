@@ -1,4 +1,6 @@
 import type { FlashContext, FlashMemoryRegion, FlashProvider } from '../platform/vehicle-module';
+import { GENERIC_ALGORITHMS, algorithmById, bytesToHex, type SeedKeyAlgorithm } from '../platform/seedkey';
+import { securityAccess, type SecurityAccessIO, type UnlockResult } from '../platform/security-access';
 
 /**
  * 演示模式用的模拟 ECU 刷写实现。
@@ -44,6 +46,9 @@ export class DemoFlashProvider implements FlashProvider {
   private session = false;
   private unlocked = false;
 
+  /** 模拟 ECU 用算法库里的某个算法当“私有密钥”，一键解锁应能试出它 */
+  private readonly secretAlgorithm: SeedKeyAlgorithm = algorithmById('rotl5-xor5a')!;
+
   constructor(private readonly delayMs = 8) {}
 
   async enterProgrammingSession(ctx: FlashContext): Promise<void> {
@@ -53,10 +58,28 @@ export class DemoFlashProvider implements FlashProvider {
   }
 
   async unlock(ctx: FlashContext): Promise<void> {
-    if (!this.session) throw new Error('未进入编程会话');
-    ctx.report(0, '安全认证 seed/key（模拟）…');
-    await sleep(this.delayMs);
+    const res = await this.probeUnlock(ctx);
+    if (!res.unlocked) throw new Error(res.reason ?? '解锁失败');
     this.unlocked = true;
+  }
+
+  /** 一键解锁：用真实的 security access 引擎，对模拟 ECU 试算法库 */
+  async probeUnlock(ctx: FlashContext): Promise<UnlockResult> {
+    if (!this.session) throw new Error('未进入编程会话');
+    const ecu = new SimSeedKeyEcu(this.secretAlgorithm);
+    const res = await securityAccess(
+      { request: (hex) => ecu.request(hex) },
+      {
+        requestLevel: 0x01,
+        sendLevel: 0x02,
+        algorithms: GENERIC_ALGORITHMS,
+        maxAttempts: GENERIC_ALGORITHMS.length,
+        report: (m) => ctx.report(0, m),
+        lockoutWaitMs: 50,
+      },
+    );
+    this.unlocked = res.unlocked;
+    return res;
   }
 
   private assertUnlocked(): void {
@@ -100,6 +123,56 @@ export class DemoFlashProvider implements FlashProvider {
     await sleep(this.delayMs);
   }
 }
+
+/**
+ * 模拟一个有 seed/key 保护的 ECU，只回应 27 01 / 27 02。
+ * 它内部“藏着”一个密钥算法，securityAccess 引擎要从算法库里试出同一个算法才能解锁。
+ * 也模拟了真车的错误计数和锁定行为。
+ */
+class SimSeedKeyEcu implements SecurityAccessIO {
+  private seed: Uint8Array | null = null;
+  private failures = 0;
+  private lockedUntil = 0;
+
+  constructor(private readonly secret: SeedKeyAlgorithm) {}
+
+  async request(hex: string): Promise<Uint8Array> {
+    const bytes = hexToBytes(hex);
+    if (bytes[0] !== 0x27) return Uint8Array.of(0x7f, bytes[0] ?? 0, 0x11);
+    const level = bytes[1];
+    if (level === 0x01) {
+      // 请求种子
+      this.seed = Uint8Array.of(0xa1, (Math.random() * 256) | 0, 0xc3, (Math.random() * 256) | 0);
+      return Uint8Array.of(0x67, 0x01, ...this.seed);
+    }
+    if (level === 0x02) {
+      // 锁定中：要求等待（真车也是这样，等延时过了才能再试）
+      if (Date.now() < this.lockedUntil) return Uint8Array.of(0x7f, 0x27, 0x37);
+      // 延时已过：错误计数清零，又可以再试 3 次
+      if (this.failures >= 3) this.failures = 0;
+      if (!this.seed) return Uint8Array.of(0x7f, 0x27, 0x24);
+      const expected = this.secret.compute(this.seed);
+      const got = bytes.slice(2);
+      if (got.length === expected.length && got.every((b, i) => b === expected[i])) {
+        this.failures = 0;
+        return Uint8Array.of(0x67, 0x02);
+      }
+      this.failures++;
+      if (this.failures >= 3) this.lockedUntil = Date.now() + 40; // 连错 3 次，锁定一小段
+      return Uint8Array.of(0x7f, 0x27, 0x35);
+    }
+    return Uint8Array.of(0x7f, 0x27, 0x12);
+  }
+}
+
+function hexToBytes(hex: string): number[] {
+  const clean = hex.replace(/[^0-9a-fA-F]/g, '');
+  const out: number[] = [];
+  for (let i = 0; i + 1 < clean.length; i += 2) out.push(parseInt(clean.slice(i, i + 2), 16));
+  return out;
+}
+
+export { SimSeedKeyEcu, bytesToHex };
 
 /** 演示模式共用一个模拟 ECU，备份和恢复看到的是同一块“闪存” */
 export const demoFlash = new DemoFlashProvider();

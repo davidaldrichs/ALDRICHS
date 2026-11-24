@@ -1,5 +1,6 @@
 import type { Elm327 } from '../core/elm327';
 import type { ObdService } from '../core/obd';
+import type { UnlockResult } from './security-access';
 
 /**
  * 全平台刷写框架的核心抽象。
@@ -91,6 +92,8 @@ export interface FlashProvider {
   enterProgrammingSession(ctx: FlashContext): Promise<void>;
   /** 通过 security access（seed/key）解锁 ECU */
   unlock(ctx: FlashContext): Promise<void>;
+  /** 一键解锁诊断：尝试已知算法并报告哪个成功。可选；没有则界面不显示“一键解锁”按钮 */
+  probeUnlock?(ctx: FlashContext): Promise<UnlockResult>;
   /** 读取一段内存（备份原厂程序） */
   readRegion(ctx: FlashContext, region: FlashMemoryRegion): Promise<Uint8Array>;
   /** 校验要写入的固件（大小、校验和、是否匹配本车 ECU） */
