@@ -77,3 +77,22 @@
 演示模式下有一个模拟的带 seed/key 保护的 ECU（`SimSeedKeyEcu`），用算法库里的一个算法当“私钥”，一键解锁能真实地试出它——整条引擎在演示模式就是真的在跑。
 
 真车（尤其 MINI 二代 MEVD17）的私有算法仍需逆向，这一步没有捷径。
+
+## 更新（2026-11）：到网上找开源解锁的结论
+
+去 GitHub 和网络系统查了一轮：
+
+**MINI / BMW：开源里没有,而且部分从原理上就拿不到。**
+- 新款 BMW/MINI（MEVD17、MG1、MD1 这一代）用 RSA 签名,私钥锁在 ECU 自己的 bootloader 里,外部无法推导（[UnlockECU issue #8](https://github.com/jglim/UnlockECU/issues/8)、[MSS6x-Flasher](https://github.com/terraphantm/MSS6x-Flasher)）。
+- 老款 ME 系列是未公开的非线性 16 位算法。
+- [therudywolf/MS4X](https://github.com/therudywolf/MS4X)（BMW MS42/MS43 逆向）里没有 seed/key,只做刷写校验。
+- **对 MINI 的现实意义**：备份原厂程序应走 **boot 模式 / 台架读**,直接读 flash 芯片,根本不经过 seed/key 解锁。要改程序才需要解锁,而那一步 MINI 没有开源捷径。
+
+**开源里真实存在的解锁算法（都不是 MINI）：**
+- [ludwig-v/psa-seedkey-algorithm](https://github.com/ludwig-v/psa-seedkey-algorithm)（GPL-3.0）：标致/雪铁龙/欧宝,完整算法。GPL 会传染本项目许可,未采用。
+- [jglim/UnlockECU](https://github.com/jglim/UnlockECU)（MIT,463★）：主要是奔驰 + 通用算法（VolkswagenSA2、Bosch/Conti 等）,无 BMW/MINI。
+- [bri3d/sa2_seed_key](https://github.com/bri3d/sa2_seed_key)（MIT）：大众/奥迪 SA2。**已移植到 `src/platform/sa2.ts` 并用它的两个官方测试向量验证通过**。
+
+**已落地**：VAG SA2 解释器（`src/platform/sa2.ts`）。SA2 是一段每款 ECU 自带的字节码脚本,从该 ECU 的刷写数据（FRF/ODX）里取出脚本即可算 key。这是框架里第一个真实可用的解锁算法,等接入大众车型模块后,一键解锁对 VAG 就是真的。
+
+**结论**：MINI 一键解锁无法从开源填入,只能在备用 ECU 上逆向（且新款受 RSA 限制可能逆不出可用的 key）。VAG 则已具备真实解锁能力,是先在真车上验证整条链路的最佳选择。

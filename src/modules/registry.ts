@@ -19,7 +19,7 @@ function reserved(id: string, brand: string, name: string, note: string): Vehicl
 export const MODULES: VehicleModule[] = [
   miniR,
   reserved('bmw-fg', 'BMW', 'BMW F/G 底盘', '二代以后的宝马，与 MINI 同为 UDS/BMW-FAST，优先级高'),
-  reserved('vw-mqb', 'VW', '大众 MQB（Simos/MED17）', '可借鉴 VW_Flash / ZephyrFlasher 的成熟方案'),
+  reserved('vw-mqb', 'VW', '大众 MQB（Simos/MED17）', 'SA2 解锁算法已实现并验证（见 platform/sa2.ts），待接入真车刷写'),
   reserved('toyota', 'Toyota', '丰田 / 雷克萨斯', 'KWP/UDS，资料多'),
   reserved('generic-obd', '通用', '任意 OBD-II 车辆', '仅标准 OBD 诊断，不含刷写'),
 ];
