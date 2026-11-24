@@ -64,6 +64,27 @@ npx cap open ios       # 在 Xcode 里选择你的开发者账号签名后运行
    - WiFi 适配器：先在手机 WiFi 设置里连上适配器热点。
 3. 连接成功后可以读故障码、看仪表、读车辆信息。“日志”页可以发送只读的 AT/OBD 命令排查问题。
 
+## Windows 电脑版（Electron）
+
+电脑版复用同一套界面和框架，只是连接方式换成电脑常用的：
+
+| 连接 | 说明 |
+| --- | --- |
+| **串口 / 经典蓝牙（COM 口）** | 经典蓝牙适配器先在 Windows 蓝牙设置里配对，会出现为一个 COM 口；USB K+DCAN 线也是 COM 口。点“连接”后在弹窗里选端口。 |
+| **WiFi** | 先连接适配器的 WiFi 热点（默认 192.168.0.10:35000）。 |
+| **演示模式** | 不接车也能体验。 |
+
+**直接用**：`release/` 里的 `MINI R 诊断 0.1.0.exe` 是免安装的便携版，双击即可运行。
+
+**自己打包**（在 Windows 上，无需 wine）：
+```bash
+npm install
+npm run dist:win     # 生成 release/ 里的便携版和安装版 exe
+```
+开发时实时调试：`npm run electron:dev`。
+
+> 说明：本仓库自带的便携 exe 是在 Linux 容器里用 wine 打包的，因容器限制未加图标和版本信息、也没有数字签名，Windows 首次运行可能提示“未知发布者”，选“仍要运行”即可。在 Windows 上用 `npm run dist:win` 自己打包就没有这些限制。
+
 ## 架构：全平台刷写框架
 
 这个 App 不是只为 MINI 写死的，而是一个**可扩展的车型框架**。通用流程写一次，各品牌的差异做成可插拔的“车型模块”。MINI R 是第一个落地模块，其它品牌先在注册表里占位（界面显示“即将支持”）。
@@ -93,6 +114,9 @@ src/core/obd.ts        OBD-II 服务：实时数据、故障码、VIN/CALID/CVN
 src/core/mini.ts       MINI R 底盘/发动机/ECU 资料、VIN 年款识别
 src/core/dtc-db.ts     通用故障码中文说明
 src/transport/         蓝牙 BLE、WiFi、模拟器三种连接
-src/main.ts            界面逻辑（注册表驱动）
+src/transport/desktop-*.ts   电脑版连接：串口(Web Serial)、WiFi(TCP)
+electron/main.cjs      Electron 主进程：窗口 + TCP + 串口选择
+electron/preload.cjs    向页面安全暴露桌面能力
+src/main.ts            界面逻辑（注册表驱动，按平台切换连接方式）
 tests/obd.test.ts      测试（协议解析 + 一/二代模拟车 + 框架与刷写流程）
 ```

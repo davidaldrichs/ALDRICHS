@@ -33,15 +33,21 @@
 
         <div class="card">
           <h2>2. 连接 OBD 适配器</h2>
-          <div class="seg" id="link-seg">
-            <button data-link="ble" class="on">蓝牙 BLE</button>
-            <button data-link="wifi">WiFi</button>
-            <button data-link="demo">演示模式</button>
-          </div>
+          <div class="seg" id="link-seg"></div>
           <div id="wifi-opts" hidden>
             <label>适配器地址 <input id="wifi-host" value="192.168.0.10" inputmode="decimal" /></label>
             <label>端口 <input id="wifi-port" value="35000" inputmode="numeric" /></label>
-            <p class="hint">先在手机 WiFi 设置里连接适配器热点（通常叫 WiFi_OBDII）。</p>
+            <p class="hint" id="wifi-hint">先连接适配器 WiFi 热点（通常叫 WiFi_OBDII）。</p>
+          </div>
+          <div id="serial-opts" hidden>
+            <label>波特率
+              <select id="serial-baud">
+                <option value="38400">38400（多数 ELM327 默认）</option>
+                <option value="115200">115200</option>
+                <option value="9600">9600</option>
+              </select>
+            </label>
+            <p class="hint">点“连接”后会弹出串口列表。经典蓝牙适配器先在 Windows 蓝牙设置里配对，它会出现为一个 COM 口；USB K+DCAN 线也是 COM 口。</p>
           </div>
           <p class="hint" id="link-hint"></p>
           <button id="btn-connect" class="primary">连接</button>
@@ -112,6 +118,15 @@
         <pre id="log"></pre>
       </section>
     </main>
+
+    <dialog id="serial-dialog">
+      <h2>选择串口 / 蓝牙设备</h2>
+      <div id="serial-ports"></div>
+      <div class="row wrap" style="margin-top:12px">
+        <button id="serial-refresh">重新搜索</button>
+        <button id="serial-cancel">取消</button>
+      </div>
+    </dialog>
 
     <nav class="tabbar">
       <button data-tab="connect" class="on">连接</button>

@@ -156,3 +156,15 @@ button.danger { color: var(--danger); border-color: var(--danger); background: t
 }
 .tabbar button { flex: 1 1 0; min-width: 0; border: 0; border-radius: 0; background: none; font-size: 12px; padding: 10px 2px; color: var(--muted); }
 .tabbar button.on { color: var(--accent); font-weight: 600; }
+
+dialog {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  padding: 18px;
+  width: min(92vw, 420px);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+dialog h2 { margin-top: 0; }
+#serial-ports button { background: var(--bg); }

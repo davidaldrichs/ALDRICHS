@@ -2,13 +2,57 @@
   "name": "mini-r-tool",
   "version": "0.1.0",
   "private": true,
-  "description": "MINI R 系列（一代 R50/R52/R53，二代 R55–R61）手机 OBD 诊断工具",
+  "description": "MINI R 系列（一代 R50/R52/R53，二代 R55–R61）诊断工具，可扩展的全平台刷写框架",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "cap:sync": "npm run build && cap sync"
+    "cap:sync": "npm run build && cap sync",
+    "electron:dev": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:all": "npm run build && electron-builder -mwl"
+  },
+  "build": {
+    "appId": "com.aldrichs.minirtool",
+    "productName": "MINI R 诊断",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.4.0",
@@ -19,8 +63,11 @@
     "@capacitor/android": "^8.6.2",
     "@capacitor/cli": "^8.6.2",
     "@capacitor/ios": "^8.6.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "typescript": "^5.9.3",
     "vite": "^8.3.8",
     "vitest": "^5.1.1"
-  }
+  },
+  "author": "ALDRICHS"
 }

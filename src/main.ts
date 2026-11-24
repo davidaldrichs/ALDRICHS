@@ -6,16 +6,18 @@ import { MODULES, availableModules, getModule, reservedModules } from './modules
 import type { VehicleModule, Variant } from './platform/vehicle-module';
 import type { Transport } from './transport/transport';
 import { SimulatorTransport } from './transport/simulator';
+import { desktop, isDesktop, type SerialPortItem } from './transport/desktop-api';
 
-type LinkKind = 'ble' | 'wifi' | 'demo';
+type LinkKind = 'ble' | 'wifi' | 'serial' | 'demo';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const platform = Capacitor.getPlatform(); // 'web' | 'ios' | 'android'
+const DESKTOP = isDesktop();
 
 const state = {
   module: availableModules()[0] as VehicleModule,
   variant: availableModules()[0].variants[0] as Variant,
-  link: 'ble' as LinkKind,
+  link: (DESKTOP ? 'serial' : 'ble') as LinkKind,
   transport: null as Transport | null,
   elm: null as Elm327 | null,
   obd: null as ObdService | null,
@@ -146,14 +148,22 @@ function updateChassisHint(): void {
 
 function updateLinkHint(): void {
   $('wifi-opts').hidden = state.link !== 'wifi';
+  $('serial-opts').hidden = state.link !== 'serial';
   const hints: Record<LinkKind, string> = {
     ble:
       platform === 'ios'
         ? 'iPhone 只能连接 BLE（蓝牙 4.0）版适配器，例如 Vgate iCar Pro BLE。经典蓝牙版请改用 WiFi 版。'
         : '支持 BLE 版 ELM327。经典蓝牙（SPP）版请在后续版本中使用，或改用 WiFi 版。',
-    wifi: platform === 'web' ? '浏览器里不能使用 WiFi 连接，请安装手机 App。' : '安卓和 iPhone 都可以使用 WiFi 版 ELM327。',
+    wifi: DESKTOP
+      ? '电脑先连接适配器的 WiFi 热点，默认地址 192.168.0.10:35000。'
+      : platform === 'web'
+        ? '浏览器里不能使用 WiFi 连接，请安装手机 App。'
+        : '安卓和 iPhone 都可以使用 WiFi 版 ELM327。',
+    serial: '串口 / 经典蓝牙（COM 口）版 ELM327，以及 USB K+DCAN 线。点“连接”后选择端口。',
     demo: `不需要车，用模拟数据体验全部功能（当前模拟${state.variant.isCan ? '二代 R56 / CAN' : '一代 R53 / K-Line'}）。`,
   };
+  const el = document.getElementById('wifi-hint');
+  if (el) el.textContent = DESKTOP ? '电脑先在系统 WiFi 里连接适配器热点（通常叫 WiFi_OBDII）。' : '先连接适配器 WiFi 热点（通常叫 WiFi_OBDII）。';
   $('link-hint').textContent = hints[state.link];
 }
 
@@ -165,10 +175,19 @@ async function createTransport(): Promise<Transport> {
       const { BleTransport } = await import('./transport/ble');
       return new BleTransport();
     }
+    case 'serial': {
+      const { DesktopSerialTransport } = await import('./transport/desktop-serial');
+      return new DesktopSerialTransport(Number($<HTMLSelectElement>('serial-baud').value) || 38400);
+    }
     case 'wifi': {
-      const { WifiTransport } = await import('./transport/wifi');
+      const host = $<HTMLInputElement>('wifi-host').value.trim() || '192.168.0.10';
       const port = Number($<HTMLInputElement>('wifi-port').value) || 35000;
-      return new WifiTransport($<HTMLInputElement>('wifi-host').value.trim() || '192.168.0.10', port);
+      if (DESKTOP) {
+        const { DesktopWifiTransport } = await import('./transport/desktop-wifi');
+        return new DesktopWifiTransport(host, port);
+      }
+      const { WifiTransport } = await import('./transport/wifi');
+      return new WifiTransport(host, port);
     }
   }
 }
@@ -491,9 +510,68 @@ async function sendRaw(): Promise<void> {
   renderLog();
 }
 
+/* ---------------- 连接方式按钮 + 串口选择 ---------------- */
+
+function buildLinkSeg(): void {
+  const labels: Record<LinkKind, string> = { ble: '蓝牙 BLE', serial: '串口/蓝牙', wifi: 'WiFi', demo: '演示模式' };
+  const kinds: LinkKind[] = DESKTOP
+    ? ['serial', 'wifi', 'demo']
+    : platform === 'web'
+      ? ['ble', 'demo']
+      : ['ble', 'wifi', 'demo'];
+  if (!kinds.includes(state.link)) state.link = kinds[0];
+  $('link-seg').replaceChildren(
+    ...kinds.map((k) => {
+      const b = document.createElement('button');
+      b.dataset.link = k;
+      b.textContent = labels[k];
+      if (k === state.link) b.classList.add('on');
+      return b;
+    }),
+  );
+}
+
+function setupSerialChooser(): void {
+  const d = desktop();
+  if (!d) return;
+  const dialog = $<HTMLDialogElement>('serial-dialog');
+  const render = (list: SerialPortItem[]) => {
+    const box = $('serial-ports');
+    if (!list.length) {
+      box.replaceChildren(Object.assign(document.createElement('p'), { className: 'hint', textContent: '没有找到串口。经典蓝牙适配器请先在系统里配对，USB 线请插好后点“重新搜索”。' }));
+    } else {
+      box.replaceChildren(
+        ...list.map((p) => {
+          const b = document.createElement('button');
+          b.textContent = p.portName;
+          b.style.cssText = 'display:block;width:100%;margin:6px 0;text-align:left';
+          b.addEventListener('click', () => {
+            d.chooseSerialPort(p.portId);
+            dialog.close();
+          });
+          return b;
+        }),
+      );
+    }
+    if (!dialog.open) dialog.showModal();
+  };
+  d.onSerialList(render);
+  $('serial-cancel').addEventListener('click', () => {
+    d.chooseSerialPort('');
+    dialog.close();
+  });
+  // “重新搜索”：关闭后重新触发 requestPort。交给连接流程处理，这里只关弹窗。
+  $('serial-refresh').addEventListener('click', () => {
+    d.chooseSerialPort('');
+    dialog.close();
+  });
+}
+
 /* ---------------- 启动 ---------------- */
 
 function init(): void {
+  buildLinkSeg();
+  if (DESKTOP) setupSerialChooser();
   $('module').addEventListener('change', (ev) => {
     const m = getModule((ev.target as HTMLSelectElement).value);
     if (!m || m.status === 'reserved') return;
