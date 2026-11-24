@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>MINI R 诊断</title>
+    <link rel="stylesheet" href="./src/ui/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">MINI R 诊断</div>
+      <div id="status" class="status off">未连接</div>
+    </header>
+
+    <main>
+      <!-- 连接 -->
+      <section id="tab-connect" class="tab active">
+        <div class="card">
+          <h2>1. 选择底盘</h2>
+          <div class="seg" id="gen-seg">
+            <button data-gen="1">一代 R50/R52/R53</button>
+            <button data-gen="2" class="on">二代 R55–R61</button>
+          </div>
+          <label>车型
+            <select id="chassis"></select>
+          </label>
+          <label>发动机
+            <select id="engine"></select>
+          </label>
+          <p class="hint" id="chassis-hint"></p>
+        </div>
+
+        <div class="card">
+          <h2>2. 连接 OBD 适配器</h2>
+          <div class="seg" id="link-seg">
+            <button data-link="ble" class="on">蓝牙 BLE</button>
+            <button data-link="wifi">WiFi</button>
+            <button data-link="demo">演示模式</button>
+          </div>
+          <div id="wifi-opts" hidden>
+            <label>适配器地址 <input id="wifi-host" value="192.168.0.10" inputmode="decimal" /></label>
+            <label>端口 <input id="wifi-port" value="35000" inputmode="numeric" /></label>
+            <p class="hint">先在手机 WiFi 设置里连接适配器热点（通常叫 WiFi_OBDII）。</p>
+          </div>
+          <p class="hint" id="link-hint"></p>
+          <button id="btn-connect" class="primary">连接</button>
+          <p class="hint">车辆 OBD 接口在方向盘左下方。连接前请打开点火开关。</p>
+        </div>
+      </section>
+
+      <!-- 仪表 -->
+      <section id="tab-live" class="tab">
+        <div class="row">
+          <button id="btn-live" class="primary">开始读取</button>
+          <span class="hint" id="live-rate"></span>
+        </div>
+        <div id="gauges" class="grid"></div>
+      </section>
+
+      <!-- 故障码 -->
+      <section id="tab-dtc" class="tab">
+        <div class="row wrap">
+          <button id="btn-dtc-read" class="primary">读取故障码</button>
+          <button id="btn-dtc-clear" class="danger">清除故障码</button>
+        </div>
+        <div id="dtc-mil" class="hint"></div>
+        <div id="dtc-list"></div>
+      </section>
+
+      <!-- 车辆信息 -->
+      <section id="tab-info" class="tab">
+        <button id="btn-info" class="primary">读取车辆信息</button>
+        <dl id="info-list" class="kv"></dl>
+      </section>
+
+      <!-- 编码 / 刷写 -->
+      <section id="tab-code" class="tab">
+        <div class="card">
+          <h2>功能支持情况</h2>
+          <table class="caps" id="caps"></table>
+        </div>
+        <div class="card">
+          <h2>为什么编码和刷写还没开放</h2>
+          <p>编码和刷写要用宝马/MINI 的私有诊断协议（BMW-FAST / KWP2000 / D-CAN），刷写还要通过 ECU 的安全认证（seed/key），并且要修正程序校验和。任何一步写错，ECU 都可能变砖，车会无法启动。</p>
+          <p>这部分功能必须在真车和备用 ECU 上逐个验证后才能开放。目前请使用已有的成熟工具：</p>
+          <ul>
+            <li><b>编码</b>：BimmerCode（安卓 / iPhone，支持二代 R 系列）</li>
+            <li><b>诊断 + 编码</b>：Deep OBD（安卓，开源，支持 K+DCAN 和 ELM327）</li>
+            <li><b>刷写</b>：专业刷写工具（需 K+DCAN 线、稳压电源，刷前务必备份原厂程序）</li>
+          </ul>
+          <p class="hint">注意：修改动力程序可能影响排放合规、年检和质保。</p>
+        </div>
+      </section>
+
+      <!-- 日志 -->
+      <section id="tab-log" class="tab">
+        <div class="row wrap">
+          <input id="raw-cmd" placeholder="发送原始命令，如 ATRV 或 0105" autocapitalize="characters" />
+          <button id="btn-raw">发送</button>
+          <button id="btn-log-copy">复制日志</button>
+        </div>
+        <pre id="log"></pre>
+      </section>
+    </main>
+
+    <nav class="tabbar">
+      <button data-tab="connect" class="on">连接</button>
+      <button data-tab="live">仪表</button>
+      <button data-tab="dtc">故障码</button>
+      <button data-tab="info">信息</button>
+      <button data-tab="code">编码/刷写</button>
+      <button data-tab="log">日志</button>
+    </nav>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
