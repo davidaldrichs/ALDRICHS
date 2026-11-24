@@ -90,14 +90,14 @@ describe('security access 引擎', () => {
 describe('演示 ECU 一键解锁', () => {
   const ctx = (): FlashContext => ({ elm: {} as never, obd: {} as never, report: () => {}, cancelled: () => false });
   it('probeUnlock 成功并记录算法', async () => {
-    const ecu = new DemoFlashProvider(0);
+    const ecu = new DemoFlashProvider(undefined, 0);
     await ecu.enterProgrammingSession(ctx());
     const r = await ecu.probeUnlock(ctx());
     expect(r.unlocked).toBe(true);
     expect(r.algorithm?.id).toBe('rotl5-xor5a');
   });
   it('没进会话不能解锁', async () => {
-    const ecu = new DemoFlashProvider(0);
+    const ecu = new DemoFlashProvider(undefined, 0);
     await expect(ecu.probeUnlock(ctx())).rejects.toThrow(/会话/);
   });
 });

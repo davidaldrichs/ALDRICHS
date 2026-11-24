@@ -124,6 +124,7 @@ src/platform/backup-file.ts     .mrbk 备份格式、防刷错车检查
 src/modules/demo-flash.ts       演示模式的模拟 ECU（seed/key、校验和）
 src/modules/registry.ts         车型模块注册表（MINI 可用，其它品牌预留）
 src/modules/mini-r.ts           MINI R 模块：变体/底盘、VIN 识别、专属故障码
+src/modules/mercedes.ts         奔驰模块：OM 柴油/M 汽油、VIN 识别、Daimler 解锁
 src/core/elm327.ts     ELM327 驱动：命令队列、响应清理、CAN 多帧解析
 src/core/obd.ts        OBD-II 服务：实时数据、故障码、VIN/CALID/CVN
 src/core/mini.ts       MINI R 底盘/发动机/ECU 资料、VIN 年款识别

@@ -58,3 +58,36 @@ function snapshot(_v: 'standard'): string {
   const out = BigInt.asUintN(32, (1103515245n * sA + 12345n) ^ (1103515245n * sB + 12345n) ^ k);
   return out.toString(16).padStart(8, '0');
 }
+
+import { getModule } from '../src/modules/registry';
+import { demoFlashFor } from '../src/modules/demo-flash';
+import type { FlashContext } from '../src/platform/vehicle-module';
+
+describe('奔驰车型模块', () => {
+  it('已注册为可用模块，含柴油(OM)和汽油(M)两类', () => {
+    const m = getModule('mercedes')!;
+    expect(m.status).toBe('available');
+    expect(m.variants.map((v) => v.id)).toEqual(['diesel', 'petrol']);
+    expect(m.variants[0].subModels.map((s) => s.code)).toContain('OM651');
+    expect(m.variants[1].subModels.map((s) => s.code)).toContain('M274');
+  });
+
+  it('VIN 识别奔驰', () => {
+    const m = getModule('mercedes')!;
+    expect(m.analyzeVin!('WDD2050011R123456').belongsToModule).toBe(true);
+    expect(m.analyzeVin!('WMWMF7C5XBTX98765').belongsToModule).toBe(false);
+  });
+
+  it('演示模式用真实 Daimler 算法一键解锁模拟奔驰 ECU', async () => {
+    const ctx = (): FlashContext => ({ elm: {} as never, obd: {} as never, report: () => {}, cancelled: () => false });
+    const ecu = demoFlashFor('mercedes');
+    await ecu.enterProgrammingSession(ctx());
+    const res = await ecu.probeUnlock(ctx());
+    expect(res.unlocked).toBe(true);
+    expect(res.algorithm?.id).toBe('mb-daimler-demo');
+  });
+
+  it('MINI 和奔驰用各自的演示 ECU', () => {
+    expect(demoFlashFor('mercedes')).not.toBe(demoFlashFor('mini-r'));
+  });
+});

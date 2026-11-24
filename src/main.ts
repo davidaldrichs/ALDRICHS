@@ -6,7 +6,7 @@ import { MODULES, availableModules, getModule, reservedModules } from './modules
 import type { VehicleModule, Variant } from './platform/vehicle-module';
 import type { Transport } from './transport/transport';
 import { SimulatorTransport } from './transport/simulator';
-import { demoFlash } from './modules/demo-flash';
+import { DemoFlashProvider, demoFlash, demoFlashFor } from './modules/demo-flash';
 import { FlashCancelled, FlashRunner } from './platform/flash-runner';
 import { backupFileName, checkRestore, decodeBackup, encodeBackup } from './platform/backup-file';
 import type { FlashContext, FlashProvider } from './platform/vehicle-module';
@@ -482,7 +482,7 @@ function renderCaps(): void {
 
 function currentFlashProvider(): FlashProvider | null {
   if (!state.transport) return null;
-  if (state.transport instanceof SimulatorTransport) return demoFlash;
+  if (state.transport instanceof SimulatorTransport) return demoFlashFor(state.module.id);
   return state.module.flash ?? null;
 }
 
@@ -503,7 +503,7 @@ function renderFlashPanel(): void {
     return;
   }
 
-  const isDemo = provider === demoFlash;
+  const isDemo = provider === demoFlash || provider instanceof DemoFlashProvider;
   const regionSel = el('select', { id: 'flash-region' });
   regionSel.replaceChildren(...provider.regions.map((r, i) => new Option(`${r.name}（0x${r.address.toString(16).toUpperCase()}，${Math.round(r.size / 1024)} KB）`, String(i))));
   const unlockBtn = el('button', { textContent: '一键解锁（试算法）' });

@@ -68,14 +68,14 @@ describe('恢复前检查（防刷错车）', () => {
 
 describe('一键备份 / 恢复（模拟 ECU）', () => {
   it('备份读出的是原厂程序，校验和正确', async () => {
-    const ecu = new DemoFlashProvider(0);
+    const ecu = new DemoFlashProvider(undefined, 0);
     const data = await new FlashRunner(ecu).backup(ctx(), ecu.regions[0]);
     expect(data).toEqual(ecu.memory);
     expect(checksumOk(data)).toBe(true);
   });
 
   it('程序被改坏后，能从备份恢复并读回校验通过', async () => {
-    const ecu = new DemoFlashProvider(0);
+    const ecu = new DemoFlashProvider(undefined, 0);
     const r = ecu.regions[0];
     const original = await new FlashRunner(ecu).backup(ctx(), r);
     const file = await encodeBackup(meta, original);
@@ -89,12 +89,12 @@ describe('一键备份 / 恢复（模拟 ECU）', () => {
   });
 
   it('没解锁不能读', async () => {
-    const ecu = new DemoFlashProvider(0);
+    const ecu = new DemoFlashProvider(undefined, 0);
     await expect(ecu.readRegion(ctx(), ecu.regions[0])).rejects.toThrow(/未解锁/);
   });
 
   it('电压低于 12.5V 时，一个字节都不写', async () => {
-    const ecu = new DemoFlashProvider(0);
+    const ecu = new DemoFlashProvider(undefined, 0);
     const before = ecu.memory.slice();
     await expect(
       new FlashRunner(ecu).flash(ctx('11.9V'), { region: ecu.regions[0], image: new Uint8Array(region.size), backupFirst: true, minVoltage: 12.5 }),
@@ -103,14 +103,14 @@ describe('一键备份 / 恢复（模拟 ECU）', () => {
   });
 
   it('文件大小不对时拒绝写入', async () => {
-    const ecu = new DemoFlashProvider(0);
+    const ecu = new DemoFlashProvider(undefined, 0);
     await expect(
       new FlashRunner(ecu).flash(ctx(), { region: ecu.regions[0], image: new Uint8Array(100), backupFirst: false, minVoltage: 12.5 }),
     ).rejects.toThrow(/大小/);
   });
 
   it('写入中途取消会明确报错（提示重新恢复）', async () => {
-    const ecu = new DemoFlashProvider(0);
+    const ecu = new DemoFlashProvider(undefined, 0);
     const r = ecu.regions[0];
     await expect(
       new FlashRunner(ecu).flash(ctx('12.8V', 40), { region: r, image: new Uint8Array(r.size), backupFirst: true, minVoltage: 12.5 }),

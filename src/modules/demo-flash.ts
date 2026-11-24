@@ -39,17 +39,31 @@ export function checksumOk(img: Uint8Array): boolean {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+export interface DemoFlashConfig {
+  /** 模拟 ECU 内部用的“私钥”算法 */
+  secret: SeedKeyAlgorithm;
+  /** 一键解锁时引擎会尝试的候选算法 */
+  candidates: SeedKeyAlgorithm[];
+  /** seed 字节数（MINI 示例 4；奔驰 8） */
+  seedLen: number;
+}
+
 export class DemoFlashProvider implements FlashProvider {
   readonly regions = [CAL];
   /** 模拟 ECU 里的闪存，跨多次连接保留（像真车一样） */
   memory = makeFactoryImage();
   private session = false;
   private unlocked = false;
+  private readonly cfg: DemoFlashConfig;
 
-  /** 模拟 ECU 用算法库里的某个算法当“私有密钥”，一键解锁应能试出它 */
-  private readonly secretAlgorithm: SeedKeyAlgorithm = algorithmById('rotl5-xor5a')!;
-
-  constructor(private readonly delayMs = 8) {}
+  constructor(cfg?: Partial<DemoFlashConfig>, private readonly delayMs = 8) {
+    const secret = cfg?.secret ?? algorithmById('rotl5-xor5a')!;
+    this.cfg = {
+      secret,
+      candidates: cfg?.candidates ?? GENERIC_ALGORITHMS,
+      seedLen: cfg?.seedLen ?? 4,
+    };
+  }
 
   async enterProgrammingSession(ctx: FlashContext): Promise<void> {
     ctx.report(0, '进入编程会话（模拟）…');
@@ -63,17 +77,17 @@ export class DemoFlashProvider implements FlashProvider {
     this.unlocked = true;
   }
 
-  /** 一键解锁：用真实的 security access 引擎，对模拟 ECU 试算法库 */
+  /** 一键解锁：用真实的 security access 引擎，对模拟 ECU 试候选算法 */
   async probeUnlock(ctx: FlashContext): Promise<UnlockResult> {
     if (!this.session) throw new Error('未进入编程会话');
-    const ecu = new SimSeedKeyEcu(this.secretAlgorithm);
+    const ecu = new SimSeedKeyEcu(this.cfg.secret, this.cfg.seedLen);
     const res = await securityAccess(
       { request: (hex) => ecu.request(hex) },
       {
         requestLevel: 0x01,
         sendLevel: 0x02,
-        algorithms: GENERIC_ALGORITHMS,
-        maxAttempts: GENERIC_ALGORITHMS.length,
+        algorithms: this.cfg.candidates,
+        maxAttempts: this.cfg.candidates.length,
         report: (m) => ctx.report(0, m),
         lockoutWaitMs: 50,
       },
@@ -134,15 +148,18 @@ class SimSeedKeyEcu implements SecurityAccessIO {
   private failures = 0;
   private lockedUntil = 0;
 
-  constructor(private readonly secret: SeedKeyAlgorithm) {}
+  constructor(
+    private readonly secret: SeedKeyAlgorithm,
+    private readonly seedLen = 4,
+  ) {}
 
   async request(hex: string): Promise<Uint8Array> {
     const bytes = hexToBytes(hex);
     if (bytes[0] !== 0x27) return Uint8Array.of(0x7f, bytes[0] ?? 0, 0x11);
     const level = bytes[1];
     if (level === 0x01) {
-      // 请求种子
-      this.seed = Uint8Array.of(0xa1, (Math.random() * 256) | 0, 0xc3, (Math.random() * 256) | 0);
+      // 请求种子（长度按 ECU 设定）
+      this.seed = Uint8Array.from({ length: this.seedLen }, () => (Math.random() * 256) | 0);
       return Uint8Array.of(0x67, 0x01, ...this.seed);
     }
     if (level === 0x02) {
@@ -174,5 +191,18 @@ function hexToBytes(hex: string): number[] {
 
 export { SimSeedKeyEcu, bytesToHex };
 
-/** 演示模式共用一个模拟 ECU，备份和恢复看到的是同一块“闪存” */
+/** MINI / 默认演示：模拟 ECU 用算法库里的一个通用算法当私钥，一键解锁能试出它 */
 export const demoFlash = new DemoFlashProvider();
+
+/** 每个品牌一个演示 ECU 实例（闪存在会话内保留） */
+const demoByModule = new Map<string, DemoFlashProvider>([['', demoFlash]]);
+
+/** 注册某品牌的演示配置（例如奔驰用 Daimler 算法 + 已知 K） */
+export function registerDemoFlash(moduleId: string, cfg: Partial<DemoFlashConfig>): void {
+  demoByModule.set(moduleId, new DemoFlashProvider(cfg));
+}
+
+/** 取某品牌的演示 ECU；没有专门注册的就用默认（MINI 风格） */
+export function demoFlashFor(moduleId: string): DemoFlashProvider {
+  return demoByModule.get(moduleId) ?? demoFlash;
+}
