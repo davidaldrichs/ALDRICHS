@@ -6,7 +6,7 @@ import { MODULES, availableModules, getModule, reservedModules } from './modules
 import type { VehicleModule, Variant } from './platform/vehicle-module';
 import type { Transport } from './transport/transport';
 import { SimulatorTransport } from './transport/simulator';
-import { DemoFlashProvider, demoFlash, demoFlashFor } from './modules/demo-flash';
+import { demoFlashFor } from './modules/demo-flash';
 import { demoTuningFor } from './modules/demo-tuning';
 import type { TuningProvider } from './platform/tuning';
 import { FlashCancelled, FlashRunner } from './platform/flash-runner';
@@ -614,7 +614,7 @@ function renderFlashPanel(): void {
     return;
   }
 
-  const isDemo = provider === demoFlash || provider instanceof DemoFlashProvider;
+  const isDemo = state.transport instanceof SimulatorTransport;
   const regionSel = el('select', { id: 'flash-region' });
   regionSel.replaceChildren(...provider.regions.map((r, i) => new Option(`${r.name}（0x${r.address.toString(16).toUpperCase()}，${Math.round(r.size / 1024)} KB）`, String(i))));
   const unlockBtn = el('button', { textContent: '一键解锁（试算法）' });
@@ -682,11 +682,11 @@ function renderFlashPanel(): void {
     try {
       await provider.enterProgrammingSession(ctx());
       const res = await provider.probeUnlock(ctx());
+      await provider.reset(ctx()).catch(() => undefined); // 先复位，再写最终状态（避免复位进度覆盖结果）
       status.textContent = res.unlocked
         ? `✓ 解锁成功，算法：${res.algorithm?.label ?? '（ECU 已解锁）'}（试了 ${res.attempts} 种）`
         : `✗ 未解锁：${res.reason ?? '未知原因'}`;
       log('info', `一键解锁 ${res.unlocked ? '成功 ' + (res.algorithm?.id ?? '') : '失败：' + (res.reason ?? '')}`);
-      await provider.reset(ctx()).catch(() => undefined);
     } catch (e) {
       status.textContent = `解锁出错：${errorText(e)}`;
     } finally {

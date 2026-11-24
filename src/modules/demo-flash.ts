@@ -195,14 +195,19 @@ export { SimSeedKeyEcu, bytesToHex };
 export const demoFlash = new DemoFlashProvider();
 
 /** 每个品牌一个演示 ECU 实例（闪存在会话内保留） */
-const demoByModule = new Map<string, DemoFlashProvider>([['', demoFlash]]);
+const demoByModule = new Map<string, FlashProvider>([['', demoFlash]]);
 
 /** 注册某品牌的演示配置（例如奔驰用 Daimler 算法 + 已知 K） */
 export function registerDemoFlash(moduleId: string, cfg: Partial<DemoFlashConfig>): void {
   demoByModule.set(moduleId, new DemoFlashProvider(cfg));
 }
 
+/** 注册某品牌的自定义演示 FlashProvider（例如大众用真实 UDS 流程 + 模拟 ECU） */
+export function registerDemoFlashProvider(moduleId: string, provider: FlashProvider): void {
+  demoByModule.set(moduleId, provider);
+}
+
 /** 取某品牌的演示 ECU；没有专门注册的就用默认（MINI 风格） */
-export function demoFlashFor(moduleId: string): DemoFlashProvider {
+export function demoFlashFor(moduleId: string): FlashProvider {
   return demoByModule.get(moduleId) ?? demoFlash;
 }

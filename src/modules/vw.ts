@@ -1,5 +1,7 @@
 import { sa2Algorithm } from '../platform/sa2';
-import { registerDemoFlash } from './demo-flash';
+import { UdsClient, UdsFlashProvider } from '../platform/uds';
+import { UdsSimEcu } from '../platform/uds-sim';
+import { registerDemoFlashProvider } from './demo-flash';
 import type { SubModel, Variant, VehicleModule, VinAnalysis } from '../platform/vehicle-module';
 
 /**
@@ -64,4 +66,29 @@ const DEMO_SA2_SCRIPT = [
   0x68, 0x05, 0x82, 0x49, 0x84, 0x5a, 0xa5, 0xaa, 0x55, 0x87, 0x03, 0xf7, 0x80, 0x6a, 0x4c,
 ];
 const demoSa2 = sa2Algorithm('vag-sa2-demo', 'VAG SA2（示例脚本）', DEMO_SA2_SCRIPT);
-registerDemoFlash('vw', { secret: demoSa2, candidates: [demoSa2], seedLen: 4 });
+
+// 大众演示用真实的 UDS 流程(34/36/37 + 31 擦写校验),对一台 SA2 保护的模拟 ECU。
+// 这样大众的一键解锁 / 备份 / 恢复走的是真 UDS 协议,不是内存快捷方式。
+const DEMO_REGION = { name: 'CAL', address: 0x80040000, size: 32 * 1024 };
+const demoEcu = new UdsSimEcu({
+  secret: demoSa2,
+  seedLen: 4,
+  region: DEMO_REGION,
+  eraseRoutineId: 0xff00,
+  checksumRoutineId: 0x0202,
+  maxBlock: 1024,
+});
+const demoUdsProvider = new UdsFlashProvider(new UdsClient(demoEcu), {
+  regions: [DEMO_REGION],
+  programmingSession: 0x02,
+  algorithms: [demoSa2],
+  securityRequestLevel: 0x01,
+  securitySendLevel: 0x02,
+  addressBytes: 4,
+  lengthBytes: 4,
+  dataFormatId: 0x00,
+  eraseRoutineId: 0xff00,
+  checksumRoutineId: 0x0202,
+  lockoutWaitMs: 50,
+});
+registerDemoFlashProvider('vw', demoUdsProvider);

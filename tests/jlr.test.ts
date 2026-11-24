@@ -25,7 +25,7 @@ describe('捷豹路虎模块', () => {
     const ctx = (): FlashContext => ({ elm: {} as never, obd: {} as never, report: () => {}, cancelled: () => false });
     const ecu = demoFlashFor('jlr');
     await ecu.enterProgrammingSession(ctx());
-    const res = await ecu.probeUnlock(ctx());
+    const res = await ecu.probeUnlock!(ctx());
     expect(res.unlocked).toBe(false);
     expect(res.reason).toMatch(/逆向/);
   });

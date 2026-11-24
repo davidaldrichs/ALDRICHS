@@ -27,7 +27,7 @@ describe('大众（VAG）模块', () => {
     const ctx = (): FlashContext => ({ elm: {} as never, obd: {} as never, report: () => {}, cancelled: () => false });
     const ecu = demoFlashFor('vw');
     await ecu.enterProgrammingSession(ctx());
-    const res = await ecu.probeUnlock(ctx());
+    const res = await ecu.probeUnlock!(ctx());
     expect(res.unlocked).toBe(true);
     expect(res.algorithm?.id).toBe('vag-sa2-demo');
   });

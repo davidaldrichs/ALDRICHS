@@ -82,7 +82,7 @@ describe('奔驰车型模块', () => {
     const ctx = (): FlashContext => ({ elm: {} as never, obd: {} as never, report: () => {}, cancelled: () => false });
     const ecu = demoFlashFor('mercedes');
     await ecu.enterProgrammingSession(ctx());
-    const res = await ecu.probeUnlock(ctx());
+    const res = await ecu.probeUnlock!(ctx());
     expect(res.unlocked).toBe(true);
     expect(res.algorithm?.id).toBe('mb-daimler-demo');
   });

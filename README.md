@@ -118,6 +118,8 @@ src/platform/vehicle-module.ts  框架核心：VehicleModule / FlashProvider 接
 src/platform/security-access.ts  seed/key 握手引擎（自动试算法、防锁定）
 src/platform/seedkey.ts         密钥算法库（通用算法，可加逆向出的真实算法）
 src/platform/sa2.ts             大众/奥迪 SA2 解锁算法（开源移植，已用测试向量验证）
+src/platform/uds.ts             真实 UDS 刷写协议（10/27/34/36/37/31/11，含 UdsFlashProvider）
+src/platform/uds-sim.ts         模拟 UDS ECU（演示/测试用，真实回应各服务）
 src/platform/daimler.ts         奔驰/戴姆勒 解锁算法（开源移植，自洽验证）
 src/platform/tuning.ts          编码/调校模型（隐藏功能、大循环温度等）
 src/platform/flash-runner.ts    通用刷写流程调度 + 刷前安全检查 + 读回校验
@@ -143,4 +145,5 @@ tests/unlock.test.ts   测试（seed/key 引擎：成功/锁定/无匹配/等待
 tests/sa2.test.ts      测试（VAG SA2 解释器，对照官方测试向量）
 tests/daimler.test.ts  测试（奔驰算法：确定性、反推特性、字节序快照）
 tests/tuning.test.ts   测试（编码/调校：范围钳制、读写、品牌隔离）
+tests/uds.test.ts      测试（真实 UDS 流程：解锁/上传备份/擦写下载/读回校验）
 ```
