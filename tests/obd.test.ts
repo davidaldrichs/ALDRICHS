@@ -157,7 +157,7 @@ describe('车型模块框架', () => {
 
   it('其它品牌作为预留窗口占位', () => {
     expect(reservedModules().length).toBeGreaterThan(0);
-    expect(availableModules().map((m) => m.id)).toEqual(['mini-r', 'mercedes']);
+    expect(availableModules().map((m) => m.id)).toEqual(['mini-r', 'mercedes', 'jlr']);
     expect(MODULES.find((m) => m.id === 'vw-mqb')!.status).toBe('reserved');
   });
 
