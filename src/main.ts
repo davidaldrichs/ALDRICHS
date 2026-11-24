@@ -7,6 +7,8 @@ import type { VehicleModule, Variant } from './platform/vehicle-module';
 import type { Transport } from './transport/transport';
 import { SimulatorTransport } from './transport/simulator';
 import { DemoFlashProvider, demoFlash, demoFlashFor } from './modules/demo-flash';
+import { demoTuningFor } from './modules/demo-tuning';
+import type { TuningProvider } from './platform/tuning';
 import { FlashCancelled, FlashRunner } from './platform/flash-runner';
 import { backupFileName, checkRestore, decodeBackup, encodeBackup } from './platform/backup-file';
 import type { FlashContext, FlashProvider } from './platform/vehicle-module';
@@ -207,6 +209,7 @@ async function disconnect(): Promise<void> {
   setStatus('off', '未连接');
   $('btn-connect').textContent = '连接';
   renderFlashPanel();
+  renderTuningPanel();
 }
 
 async function connect(): Promise<void> {
@@ -247,6 +250,7 @@ async function connect(): Promise<void> {
     $('btn-connect').textContent = '断开';
     renderGauges();
     renderFlashPanel();
+  renderTuningPanel();
     switchTab('dtc');
   } catch (e) {
     log('info', `连接失败：${errorText(e)}`);
@@ -358,6 +362,25 @@ async function toggleLive(): Promise<void> {
 
 /* ---------------- 故障码页 ---------------- */
 
+const HIDDEN_DTC_KEY = 'hiddenDtcs';
+function loadHiddenDtcs(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(HIDDEN_DTC_KEY) ?? '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+function toggleHiddenDtc(code: string): void {
+  const set = loadHiddenDtcs();
+  if (set.has(code)) set.delete(code);
+  else set.add(code);
+  try {
+    localStorage.setItem(HIDDEN_DTC_KEY, JSON.stringify([...set]));
+  } catch {
+    /* 隐私模式/禁用存储时忽略 */
+  }
+}
+
 async function readDtcs(): Promise<void> {
   const obd = requireObd();
   if (!obd) return;
@@ -373,26 +396,51 @@ async function readDtcs(): Promise<void> {
       ['pending', '待定'],
       ['permanent', '永久'],
     ] as const;
+    const hidden = loadHiddenDtcs();
     const items: HTMLElement[] = [];
+    const hiddenItems: HTMLElement[] = [];
     for (const [kind, label] of kinds) {
       const codes = await obd.readDtcs(kind).catch(() => []);
       for (const code of codes) {
+        const isHidden = hidden.has(code);
         const el = document.createElement('div');
         el.className = 'dtc';
         const head = document.createElement('div');
         const c = Object.assign(document.createElement('span'), { className: 'code', textContent: code });
         const k = Object.assign(document.createElement('span'), { className: 'kind', textContent: label });
         head.append(c, k);
+        const btn = document.createElement('button');
+        btn.textContent = isHidden ? '取消隐藏' : '隐藏';
+        btn.style.cssText = 'margin-left:auto;min-height:32px;padding:4px 10px;font-size:13px';
+        head.style.cssText = 'display:flex;align-items:center';
+        btn.addEventListener('click', () => {
+          toggleHiddenDtc(code);
+          void readDtcs();
+        });
+        head.append(btn);
         const d = Object.assign(document.createElement('div'), { textContent: describeDtc(code) });
         el.append(head, d);
-        items.push(el);
+        (isHidden ? hiddenItems : items).push(el);
       }
     }
-    list.replaceChildren(
-      ...(items.length
-        ? items
-        : [Object.assign(document.createElement('p'), { className: 'empty', textContent: '没有故障码 ✓' })]),
+    const out: HTMLElement[] = [];
+    if (items.length) out.push(...items);
+    else out.push(Object.assign(document.createElement('p'), { className: 'empty', textContent: hiddenItems.length ? '没有未隐藏的故障码 ✓' : '没有故障码 ✓' }));
+    if (hiddenItems.length) {
+      const det = document.createElement('details');
+      const sum = document.createElement('summary');
+      sum.textContent = `已隐藏 ${hiddenItems.length} 个（仅本软件隐藏，不影响 ECU）`;
+      sum.style.cssText = 'color:var(--muted);margin:10px 0;cursor:pointer';
+      det.append(sum, ...hiddenItems);
+      out.push(det);
+    }
+    out.push(
+      Object.assign(document.createElement('p'), {
+        className: 'hint',
+        textContent: '“隐藏”只是在本软件列表里不显示，不写 ECU、不熄故障灯。要在 ECU 里永久关闭故障码属于改程序（需解锁）；删排放设备后屏蔽排放监控码是违法失效装置，本软件不做。',
+      }),
     );
+    list.replaceChildren(...out);
   } catch (e) {
     list.replaceChildren(Object.assign(document.createElement('p'), { className: 'err', textContent: errorText(e) }));
   }
@@ -475,7 +523,70 @@ function renderCaps(): void {
   });
   t.replaceChildren(head, ...rows);
   renderFlashPanel();
+  renderTuningPanel();
   renderReserved();
+}
+
+/* ---------------- 编码 / 调校（演示） ---------------- */
+
+function currentTuningProvider(): TuningProvider | null {
+  if (!state.transport) return null;
+  // 真车编码/调校需要品牌协议 + 解锁，暂未开放；目前仅演示模式可用
+  if (state.transport instanceof SimulatorTransport) return demoTuningFor(state.module.id);
+  return null;
+}
+
+function renderTuningPanel(): void {
+  const box = $('tuning-panel');
+  const tuning = currentTuningProvider();
+  if (!tuning) {
+    box.replaceChildren(
+      el('p', {
+        textContent: state.transport
+          ? '真车编码/调校需要该品牌的编码协议 + 解锁，暂未开放。可先用“演示模式”体验界面与流程。'
+          : '连接后可做隐藏功能、大循环温度等编码/调校。没有车可用“演示模式”。',
+      }),
+    );
+    return;
+  }
+  const children: HTMLElement[] = [
+    el('p', { className: 'hint', textContent: '演示模式：改的是模拟 ECU 的内存值，不碰真车。真车需解锁+写入。' }),
+  ];
+  for (const s of tuning.list()) {
+    const row = el('label', { textContent: s.name + (s.unit ? `（${s.unit}）` : '') });
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px';
+    if (s.type === 'toggle') {
+      const cb = el('input', { type: 'checkbox', checked: !!tuning.get(s.id) });
+      cb.style.cssText = 'width:auto;margin:0';
+      cb.addEventListener('change', () => {
+        tuning.set(s.id, cb.checked);
+        flashNote(s);
+      });
+      row.append(cb);
+    } else {
+      const inp = el('input', { type: 'number', value: String(tuning.get(s.id)) });
+      inp.min = String(s.min ?? '');
+      inp.max = String(s.max ?? '');
+      inp.step = String(s.step ?? 1);
+      inp.style.cssText = 'width:110px;margin:0';
+      inp.addEventListener('change', () => {
+        tuning.set(s.id, Number(inp.value));
+        inp.value = String(tuning.get(s.id)); // 回填钳制后的值
+        flashNote(s);
+      });
+      row.append(inp);
+    }
+    children.push(row);
+    if (s.note) children.push(el('p', { className: 'hint', textContent: s.note }));
+  }
+  const status = el('p', { className: 'hint', id: 'tuning-status' });
+  children.push(status);
+  box.replaceChildren(...children);
+}
+
+function flashNote(s: { name: string }): void {
+  const el2 = document.getElementById('tuning-status');
+  if (el2) el2.textContent = `已更新「${s.name}」（演示：写入模拟 ECU）`;
 }
 
 /* ---------------- 一键备份 / 恢复（刷写窗口） ---------------- */
