@@ -80,6 +80,39 @@
         <dl id="info-list" class="kv"></dl>
       </section>
 
+      <!-- 数据记录 Log -->
+      <section id="tab-rec" class="tab">
+        <div class="card">
+          <h2>数据记录（Log）</h2>
+          <p class="hint">只读采集,不改车。勾选通道,可设自动触发(满足条件自行开始/结束)。</p>
+          <label>通道</label>
+          <div id="rec-channels" class="grid"></div>
+          <label>采样间隔（毫秒）<input id="rec-interval" type="number" value="100" min="20" step="10" /></label>
+          <label style="display:flex;align-items:center;gap:8px">
+            <input id="rec-auto" type="checkbox" style="width:auto" />自动触发（自行按条件跑）
+          </label>
+          <div id="rec-trigger" hidden>
+            <div class="row wrap">
+              <select id="rec-trig-ch"></select>
+              <select id="rec-trig-op"><option>&gt;</option><option>&lt;</option><option>&gt;=</option><option>&lt;=</option></select>
+              <input id="rec-trig-val" type="number" value="90" style="width:90px" />
+            </div>
+            <label>最多记录秒数（到点自动停，留空不限）<input id="rec-stop-after" type="number" value="20" min="0" /></label>
+            <label style="display:flex;align-items:center;gap:8px">
+              <input id="rec-stop-clear" type="checkbox" style="width:auto" />条件消失即停（如松油门）
+            </label>
+          </div>
+          <div class="row wrap">
+            <button id="rec-start" class="primary">开始记录</button>
+            <button id="rec-stop" class="danger" disabled>停止</button>
+            <button id="rec-ai">AI 生成记录方案</button>
+            <button id="rec-export">导出 CSV</button>
+          </div>
+          <p class="hint" id="rec-status"></p>
+          <pre id="rec-preview"></pre>
+        </div>
+      </section>
+
       <!-- 编码 / 刷写 -->
       <section id="tab-code" class="tab">
         <div class="card">
@@ -137,6 +170,7 @@
       <button data-tab="live">仪表</button>
       <button data-tab="dtc">故障码</button>
       <button data-tab="info">信息</button>
+      <button data-tab="rec">记录</button>
       <button data-tab="code">编码/刷写</button>
       <button data-tab="log">日志</button>
     </nav>

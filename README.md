@@ -136,6 +136,7 @@ src/core/elm327.ts     ELM327 驱动：命令队列、响应清理、CAN 多帧�
 src/core/obd.ts        OBD-II 服务：实时数据、故障码、VIN/CALID/CVN
 src/core/mini.ts       MINI R 底盘/发动机/ECU 资料、VIN 年款识别
 src/core/dtc-db.ts     通用故障码中文说明
+src/core/logger.ts     数据记录（datalogging）：手动/自动触发、CSV 导出
 src/transport/         蓝牙 BLE、WiFi、模拟器三种连接
 src/transport/desktop-*.ts   电脑版连接：串口(Web Serial)、WiFi(TCP)
 electron/main.cjs      Electron 主进程：窗口 + TCP + 串口选择
@@ -148,4 +149,5 @@ tests/sa2.test.ts      测试（VAG SA2 解释器，对照官方测试向量）
 tests/daimler.test.ts  测试（奔驰算法：确定性、反推特性、字节序快照）
 tests/tuning.test.ts   测试（编码/调校：范围钳制、读写、品牌隔离）
 tests/uds.test.ts      测试（真实 UDS 流程：解锁/上传备份/擦写下载/读回校验）
+tests/logger.test.ts   测试（数据记录：手动/自动触发/松开即停/CSV）
 ```

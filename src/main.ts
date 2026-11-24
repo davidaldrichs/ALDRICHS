@@ -13,6 +13,7 @@ import { FlashCancelled, FlashRunner } from './platform/flash-runner';
 import { backupFileName, checkRestore, decodeBackup, encodeBackup } from './platform/backup-file';
 import type { FlashContext, FlashProvider } from './platform/vehicle-module';
 import { desktop, isDesktop, type SerialPortItem } from './transport/desktop-api';
+import { DataLogger, pidName, type LogProfile } from './core/logger';
 
 type LinkKind = 'ble' | 'wifi' | 'serial' | 'demo';
 
@@ -250,7 +251,8 @@ async function connect(): Promise<void> {
     $('btn-connect').textContent = '断开';
     renderGauges();
     renderFlashPanel();
-  renderTuningPanel();
+    renderTuningPanel();
+    recRerender();
     switchTab('dtc');
   } catch (e) {
     log('info', `连接失败：${errorText(e)}`);
@@ -994,9 +996,175 @@ function setupSerialChooser(): void {
 
 /* ---------------- 启动 ---------------- */
 
+/* ---------------- 数据记录 Log ---------------- */
+
+let activeLogger: DataLogger | null = null;
+let recRerender: () => void = () => {};
+
+function recordChannels(): PidDef[] {
+  const sup = state.obd?.supported ?? [];
+  return sup.length ? PIDS.filter((p) => sup.includes(p.pid)) : PIDS;
+}
+
+function setupRecordTab(): void {
+  // 通道复选框（默认勾选调校常看的几项）
+  const defaults = new Set([0x0c, 0x0d, 0x0b, 0x0e, 0x05, 0x0f, 0x11]);
+  const box = $('rec-channels');
+  const render = () => {
+    box.replaceChildren(
+      ...recordChannels().map((p) => {
+        const lab = el('label', { textContent: p.name });
+        lab.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px';
+        const cb = el('input', { type: 'checkbox', checked: defaults.has(p.pid) });
+        cb.dataset.pid = String(p.pid);
+        cb.style.cssText = 'width:auto;margin:0';
+        lab.prepend(cb);
+        return lab;
+      }),
+    );
+    const tsel = $<HTMLSelectElement>('rec-trig-ch');
+    tsel.replaceChildren(...recordChannels().map((p) => new Option(p.name, String(p.pid))));
+    tsel.value = String(0x11); // 默认节气门
+  };
+  render();
+  recRerender = render;
+
+  $('rec-auto').addEventListener('change', (e) => {
+    $('rec-trigger').hidden = !(e.target as HTMLInputElement).checked;
+  });
+  const startBtn = $<HTMLButtonElement>('rec-start');
+  startBtn.addEventListener('click', () => void startRecording());
+  $('rec-stop').addEventListener('click', () => activeLogger?.stop());
+  $('rec-export').addEventListener('click', exportLog);
+  const aiBtn = $<HTMLButtonElement>('rec-ai');
+  aiBtn.addEventListener('click', () => withBusy(aiBtn, aiLogProfile));
+}
+
+function selectedChannels(): number[] {
+  return [...document.querySelectorAll<HTMLInputElement>('#rec-channels input:checked')].map((c) => Number(c.dataset.pid));
+}
+
+function buildProfile(): LogProfile | null {
+  const channels = selectedChannels();
+  if (!channels.length) {
+    alert('请至少勾选一个通道');
+    return null;
+  }
+  const intervalMs = Math.max(20, Number($<HTMLInputElement>('rec-interval').value) || 100);
+  const profile: LogProfile = { channels, intervalMs };
+  if ($<HTMLInputElement>('rec-auto').checked) {
+    const stopAfter = Number($<HTMLInputElement>('rec-stop-after').value);
+    profile.trigger = {
+      startPid: Number($<HTMLSelectElement>('rec-trig-ch').value),
+      startOp: $<HTMLSelectElement>('rec-trig-op').value as '>' | '<' | '>=' | '<=',
+      startValue: Number($<HTMLInputElement>('rec-trig-val').value) || 0,
+      stopAfterS: stopAfter > 0 ? stopAfter : undefined,
+      stopWhenConditionClears: $<HTMLInputElement>('rec-stop-clear').checked,
+    };
+  }
+  return profile;
+}
+
+async function startRecording(): Promise<void> {
+  const obd = requireObd();
+  if (!obd) return;
+  if (activeLogger && (activeLogger.state === 'armed' || activeLogger.state === 'recording')) return;
+  const profile = buildProfile();
+  if (!profile) return;
+  state.liveRunning = false; // 让出通讯
+  const byPid = new Map(PIDS.map((p) => [p.pid, p]));
+  const status = $('rec-status');
+  const preview = $('rec-preview');
+  let count = 0;
+  const since = performance.now();
+  const logger = new DataLogger({
+    profile,
+    read: (pid) => {
+      const def = byPid.get(pid);
+      return def ? obd.readPid(def) : Promise.resolve(null);
+    },
+    onState: (s) => {
+      const label = { idle: '空闲', armed: '待触发（满足条件自动开始）…', recording: '记录中…', stopped: '已停止' }[s];
+      status.textContent = label;
+      $<HTMLButtonElement>('rec-start').disabled = s === 'armed' || s === 'recording';
+      $<HTMLButtonElement>('rec-stop').disabled = !(s === 'armed' || s === 'recording');
+    },
+    onRow: () => {
+      count++;
+      const rate = (count * 1000) / Math.max(1, performance.now() - since);
+      status.textContent = `记录中… ${logger.rows.length} 行 · ${rate.toFixed(1)} 行/秒`;
+      if (count % 3 === 0 || logger.rows.length < 5) {
+        const chans = profile.channels;
+        const head = ['t(ms)', ...chans.map((c) => pidName(c))].join('  ');
+        const last = logger.rows.slice(-6).map((r) => [r.t, ...chans.map((c) => r.values[c] ?? '-')].join('  ')).join('\n');
+        preview.textContent = head + '\n' + last;
+      }
+    },
+  });
+  activeLogger = logger;
+  preview.textContent = '';
+  await logger.run().catch((e) => {
+    status.textContent = '记录出错：' + errorText(e);
+  });
+}
+
+async function exportLog(): Promise<void> {
+  if (!activeLogger || !activeLogger.rows.length) {
+    alert('还没有记录数据');
+    return;
+  }
+  const name = `log_${state.module.id}_${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}.csv`;
+  try {
+    await saveFile(name, new TextEncoder().encode(activeLogger.toCsv()));
+    $('rec-status').textContent = `已导出 ${activeLogger.rows.length} 行到 ${name}`;
+  } catch (e) {
+    $('rec-status').textContent = '导出失败：' + errorText(e);
+  }
+}
+
+/** AI 按一句话生成记录方案（选通道 + 触发条件） */
+async function aiLogProfile(): Promise<void> {
+  const goal = prompt('想记录什么？例如：记录一次全油门加速时的增压、点火、转速', '记录一次全油门加速（增压/点火/转速/车速）');
+  if (!goal) return;
+  const cfg = loadAiCfg();
+  if (!cfg.apiKey) {
+    alert('请先在“编码/调校”页的 AI 区填好 API Key');
+    switchTab('code');
+    return;
+  }
+  const status = $('rec-status');
+  status.textContent = 'AI 生成记录方案中…';
+  try {
+    const { httpAiClient } = await import('./platform/ai-client-http');
+    const client = httpAiClient({ provider: cfg.provider, endpoint: cfg.endpoint, apiKey: cfg.apiKey, model: cfg.model });
+    const list = recordChannels().map((p) => `${p.pid}(${p.name}${p.unit ? '/' + p.unit : ''})`).join('、');
+    const sys = '你是汽车数据记录助手。只输出一个 JSON:{"channels":[PID数字...],"trigger":{"startPid":数字,"startOp":">"或"<","startValue":数字,"stopAfterS":数字}}。trigger 可省略表示手动。只用给定的 PID 数字。';
+    const user = `目标:${goal}\n可用通道(PID):${list}\n只返回 JSON。`;
+    const raw = await client.complete({ system: sys, user });
+    const j = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) as { channels?: number[]; trigger?: { startPid?: number; startOp?: string; startValue?: number; stopAfterS?: number } };
+    const valid = new Set(recordChannels().map((p) => p.pid));
+    const chans = (j.channels ?? []).filter((c) => valid.has(c));
+    if (!chans.length) throw new Error('AI 没给出有效通道');
+    // 应用到界面
+    document.querySelectorAll<HTMLInputElement>('#rec-channels input').forEach((cb) => (cb.checked = chans.includes(Number(cb.dataset.pid))));
+    if (j.trigger?.startPid && valid.has(j.trigger.startPid)) {
+      ($('rec-auto') as HTMLInputElement).checked = true;
+      $('rec-trigger').hidden = false;
+      $<HTMLSelectElement>('rec-trig-ch').value = String(j.trigger.startPid);
+      if (j.trigger.startOp) $<HTMLSelectElement>('rec-trig-op').value = j.trigger.startOp;
+      if (j.trigger.startValue !== undefined) $<HTMLInputElement>('rec-trig-val').value = String(j.trigger.startValue);
+      if (j.trigger.stopAfterS !== undefined) $<HTMLInputElement>('rec-stop-after').value = String(j.trigger.stopAfterS);
+    }
+    status.textContent = `AI 已生成方案:记录 ${chans.map((c) => pidName(c)).join('、')}${j.trigger ? '，自动触发已设好' : ''}。点“开始记录”。`;
+  } catch (e) {
+    status.textContent = 'AI 生成失败：' + errorText(e);
+  }
+}
+
 function init(): void {
   buildLinkSeg();
   if (DESKTOP) setupSerialChooser();
+  setupRecordTab();
   $('module').addEventListener('change', (ev) => {
     const m = getModule((ev.target as HTMLSelectElement).value);
     if (!m || m.status === 'reserved') return;
