@@ -137,3 +137,83 @@ for (const gen of [1, 2] as const) {
     });
   });
 }
+
+import { MODULES, availableModules, getModule, reservedModules } from '../src/modules/registry';
+import { FlashRunner } from '../src/platform/flash-runner';
+
+describe('车型模块框架', () => {
+  it('MINI R 是已可用模块，有一代/二代两个变体', () => {
+    const m = getModule('mini-r')!;
+    expect(m.status).toBe('available');
+    expect(m.variants.map((v) => v.id)).toEqual(['gen1', 'gen2']);
+    expect(m.variants[0].isCan).toBe(false); // 一代 K-Line
+    expect(m.variants[1].isCan).toBe(true); // 二代 CAN
+    expect(m.variants[1].subModels.map((s) => s.code)).toContain('R56');
+  });
+
+  it('MINI 刷写窗口已预留但未开放', () => {
+    expect(getModule('mini-r')!.flash).toBeUndefined();
+  });
+
+  it('其它品牌作为预留窗口占位', () => {
+    expect(reservedModules().length).toBeGreaterThan(0);
+    expect(availableModules().map((m) => m.id)).toEqual(['mini-r']);
+    expect(MODULES.find((m) => m.id === 'vw-mqb')!.status).toBe('reserved');
+  });
+
+  it('MINI VIN 分析走模块', () => {
+    const m = getModule('mini-r')!;
+    expect(m.analyzeVin!('WMWMF7C5XBTX98765').variantId).toBe('gen2');
+    expect(m.analyzeVin!('1HGCM82633A004352').belongsToModule).toBe(false);
+  });
+
+  it('MINI 专属故障码 + 回退到通用库', () => {
+    const m = getModule('mini-r')!;
+    expect(m.describeDtc!('P1776')).toMatch(/旁通阀/);
+    expect(m.describeDtc!('P0301')).toMatch(/失火/); // 回退到通用
+  });
+
+  it('通用刷写流程按固定顺序调度 provider', async () => {
+    const calls: string[] = [];
+    const ctx = {
+      elm: { send: async () => '13.8V', info: null } as never,
+      obd: {} as never,
+      report: () => {},
+      cancelled: () => false,
+    };
+    const region = { name: 'cal', address: 0, size: 4 };
+    const provider = {
+      regions: [region],
+      enterProgrammingSession: async () => void calls.push('session'),
+      unlock: async () => void calls.push('unlock'),
+      readRegion: async () => (calls.push('read'), new Uint8Array(4)),
+      validateImage: async () => void calls.push('validate'),
+      writeRegion: async () => void calls.push('write'),
+      finalizeChecksum: async () => void calls.push('checksum'),
+      reset: async () => void calls.push('reset'),
+    };
+    const res = await new FlashRunner(provider).flash(ctx, {
+      region,
+      image: new Uint8Array(4),
+      backupFirst: true,
+      minVoltage: 12.5,
+    });
+    expect(calls).toEqual(['validate', 'session', 'unlock', 'read', 'write', 'checksum', 'reset']);
+    expect(res.backup).toBeInstanceOf(Uint8Array);
+  });
+
+  it('电压过低拒绝刷写', async () => {
+    const ctx = { elm: { send: async () => '11.0V' } as never, obd: {} as never, report: () => {}, cancelled: () => false };
+    const region = { name: 'cal', address: 0, size: 4 };
+    const noop = async () => {};
+    const provider = {
+      regions: [region],
+      enterProgrammingSession: noop, unlock: noop,
+      readRegion: async () => new Uint8Array(4),
+      validateImage: noop, writeRegion: noop, finalizeChecksum: noop, reset: noop,
+    };
+    await expect(
+      new FlashRunner(provider).flash(ctx, { region, image: new Uint8Array(4), backupFirst: false, minVoltage: 12.5 }),
+    ).rejects.toThrow(/电压过低/);
+  });
+});

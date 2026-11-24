@@ -1,8 +1,9 @@
 import { Capacitor } from '@capacitor/core';
 import { Elm327, ElmError } from './core/elm327';
 import { ObdService, PIDS, type PidDef } from './core/obd';
-import { describeDtc } from './core/dtc-db';
-import { CAPABILITIES, CHASSIS, expectedProtocol, generationLabel, guessFromVin, type Generation } from './core/mini';
+import { describeDtc as describeGenericDtc } from './core/dtc-db';
+import { MODULES, availableModules, getModule, reservedModules } from './modules/registry';
+import type { VehicleModule, Variant } from './platform/vehicle-module';
 import type { Transport } from './transport/transport';
 import { SimulatorTransport } from './transport/simulator';
 
@@ -12,13 +13,18 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const platform = Capacitor.getPlatform(); // 'web' | 'ios' | 'android'
 
 const state = {
-  generation: 2 as Generation,
+  module: availableModules()[0] as VehicleModule,
+  variant: availableModules()[0].variants[0] as Variant,
   link: 'ble' as LinkKind,
   transport: null as Transport | null,
   elm: null as Elm327 | null,
   obd: null as ObdService | null,
   liveRunning: false,
 };
+
+function describeDtc(code: string): string {
+  return state.module.describeDtc?.(code) ?? describeGenericDtc(code);
+}
 
 /* ---------------- 日志 ---------------- */
 
@@ -86,28 +92,55 @@ function segment(containerId: string, attr: string, onChange: (v: string) => voi
 
 /* ---------------- 连接页 ---------------- */
 
+function fillModules(): void {
+  const sel = $<HTMLSelectElement>('module');
+  sel.replaceChildren(
+    ...MODULES.map((m) => {
+      const label = m.status === 'reserved' ? `${m.name}（即将支持）` : m.name;
+      const opt = new Option(label, m.id);
+      opt.disabled = m.status === 'reserved';
+      return opt;
+    }),
+  );
+  sel.value = state.module.id;
+  fillVariants();
+}
+
+function fillVariants(): void {
+  const box = $('variant-seg');
+  box.replaceChildren(
+    ...state.module.variants.map((v, i) => {
+      const b = document.createElement('button');
+      b.dataset.variant = v.id;
+      b.textContent = v.label;
+      if (v.id === state.variant.id || (state.module.variants.indexOf(state.variant) < 0 && i === 0)) {
+        b.classList.add('on');
+        state.variant = v;
+      }
+      return b;
+    }),
+  );
+  fillChassis();
+}
+
 function fillChassis(): void {
   const sel = $<HTMLSelectElement>('chassis');
-  sel.replaceChildren(
-    ...CHASSIS.filter((c) => c.generation === state.generation).map(
-      (c) => new Option(`${c.code} ${c.name}（${c.years}）`, c.code),
-    ),
-  );
+  sel.replaceChildren(...state.variant.subModels.map((c) => new Option(`${c.code} ${c.name}（${c.years}）`, c.code)));
   fillEngines();
 }
 
 function fillEngines(): void {
-  const chassis = CHASSIS.find((c) => c.code === $<HTMLSelectElement>('chassis').value);
+  const chassis = state.variant.subModels.find((c) => c.code === $<HTMLSelectElement>('chassis').value);
   const sel = $<HTMLSelectElement>('engine');
-  sel.replaceChildren(...(chassis?.engines ?? []).map((e) => new Option(`${e.code} — ${e.desc}`, e.code)));
+  sel.replaceChildren(...(chassis?.powertrains ?? []).map((e) => new Option(`${e.code} — ${e.desc}`, e.code)));
   updateChassisHint();
 }
 
 function updateChassisHint(): void {
-  const chassis = CHASSIS.find((c) => c.code === $<HTMLSelectElement>('chassis').value);
-  const engine = chassis?.engines.find((e) => e.code === $<HTMLSelectElement>('engine').value);
+  const chassis = state.variant.subModels.find((c) => c.code === $<HTMLSelectElement>('chassis').value);
+  const engine = chassis?.powertrains.find((e) => e.code === $<HTMLSelectElement>('engine').value);
   $('chassis-hint').textContent =
-    `${generationLabel(state.generation)} · 通讯方式：${expectedProtocol(state.generation)}` +
+    `${state.module.name} · ${state.variant.label} · 通讯方式：${state.variant.protocol}` +
     (engine ? ` · 常见 ECU：${engine.ecu}` : '');
 }
 
@@ -119,7 +152,7 @@ function updateLinkHint(): void {
         ? 'iPhone 只能连接 BLE（蓝牙 4.0）版适配器，例如 Vgate iCar Pro BLE。经典蓝牙版请改用 WiFi 版。'
         : '支持 BLE 版 ELM327。经典蓝牙（SPP）版请在后续版本中使用，或改用 WiFi 版。',
     wifi: platform === 'web' ? '浏览器里不能使用 WiFi 连接，请安装手机 App。' : '安卓和 iPhone 都可以使用 WiFi 版 ELM327。',
-    demo: `不需要车，用模拟数据体验全部功能（当前模拟${state.generation === 1 ? '一代 R53 / K-Line' : '二代 R56 / CAN'}）。`,
+    demo: `不需要车，用模拟数据体验全部功能（当前模拟${state.variant.isCan ? '二代 R56 / CAN' : '一代 R53 / K-Line'}）。`,
   };
   $('link-hint').textContent = hints[state.link];
 }
@@ -127,7 +160,7 @@ function updateLinkHint(): void {
 async function createTransport(): Promise<Transport> {
   switch (state.link) {
     case 'demo':
-      return new SimulatorTransport(state.generation);
+      return new SimulatorTransport(state.variant.isCan ? 2 : 1);
     case 'ble': {
       const { BleTransport } = await import('./transport/ble');
       return new BleTransport();
@@ -174,9 +207,10 @@ async function connect(): Promise<void> {
     state.obd = new ObdService(elm);
     await state.obd.loadSupportedPids();
 
-    const gotGen: Generation = info.isCan ? 2 : 1;
-    if (gotGen !== state.generation) {
-      alert(`检测到的通讯协议是 ${info.protocol}，看起来是${generationLabel(gotGen)}，与所选底盘不一致，请检查车型选择。`);
+    const ident = state.module.identify?.(elm, state.obd);
+    if (ident && ident.variantId && ident.variantId !== state.variant.id) {
+      log('info', ident.note);
+      alert(`${ident.note}，与所选（${state.variant.label}）不一致，请检查车型选择。`);
     }
     setStatus('on', info.isCan ? '已连接 · CAN' : '已连接 · K-Line');
     $('btn-connect').textContent = '断开';
@@ -367,8 +401,8 @@ async function readInfo(): Promise<void> {
     rows.pop();
     rows.push(['VIN', v.vin ?? '读不到（部分一代车型的 ECU 不提供）']);
     if (v.vin) {
-      const g = guessFromVin(v.vin);
-      rows.push(['VIN 分析', g.note]);
+      const g = state.module.analyzeVin?.(v.vin);
+      if (g) rows.push(['VIN 分析', g.note]);
     }
     rows.push(['判断底盘', info.isCan ? '二代（CAN）' : '一代（K-Line）']);
     rows.push(['ECU 名称', v.ecuName ?? '-']);
@@ -385,21 +419,49 @@ async function readInfo(): Promise<void> {
 
 /* ---------------- 编码 / 刷写页 ---------------- */
 
+function cell(tag: 'td' | 'th' | 'p', text: string): HTMLElement {
+  return Object.assign(document.createElement(tag), { textContent: text });
+}
+
 function renderCaps(): void {
+  $('caps-title').textContent = `${state.module.name} · 功能支持情况`;
   const t = $('caps');
   const head = document.createElement('tr');
-  for (const h of ['功能', '一代', '二代', '状态']) head.append(Object.assign(document.createElement('th'), { textContent: h }));
-  const rows = CAPABILITIES.map((c) => {
+  head.append(cell('th', '功能'), cell('th', '说明'), cell('th', '状态'));
+  const rows = state.module.features.map((f) => {
     const tr = document.createElement('tr');
-    for (const v of [c.name, c.gen1, c.gen2]) tr.append(Object.assign(document.createElement('td'), { textContent: v }));
+    tr.append(cell('td', f.name), cell('td', f.note ?? '-'));
     const td = document.createElement('td');
-    td.append(
-      Object.assign(document.createElement('span'), {
-        className: `badge ${c.status}`,
-        textContent: c.status === 'ready' ? '可用' : '开发中',
-      }),
-    );
+    const label = { ready: '可用', planned: '开发中', unsupported: '不支持' }[f.status];
+    td.append(Object.assign(document.createElement('span'), { className: `badge ${f.status}`, textContent: label }));
     tr.append(td);
+    return tr;
+  });
+  t.replaceChildren(head, ...rows);
+  renderFlashPanel();
+  renderReserved();
+}
+
+function renderFlashPanel(): void {
+  const box = $('flash-panel');
+  const m = state.module;
+  if (m.flash) {
+    const p = cell('p', `本车型已开放刷写，可读写 ${m.flash.regions.length} 个内存区。刷写前请接稳压电源并备份原厂程序。`);
+    box.replaceChildren(p);
+  } else {
+    const p = cell('p', `「${m.name}」的刷写窗口已在框架中预留，但尚未开放——刷写流程（会话→seed/key→擦写→校验→复位）已通用化，待在真车和备用 ECU 上验证私有协议后即可开放。`);
+    const hint = Object.assign(cell('p', '在此之前请使用成熟工具：BimmerCode（编码）、Deep OBD（开源，安卓）。'), { className: 'hint' });
+    box.replaceChildren(p, hint);
+  }
+}
+
+function renderReserved(): void {
+  const t = $('reserved-list');
+  const head = document.createElement('tr');
+  head.append(cell('th', '平台'), cell('th', '说明'));
+  const rows = reservedModules().map((m) => {
+    const tr = document.createElement('tr');
+    tr.append(cell('td', m.name), cell('td', m.reservedNote ?? ''));
     return tr;
   });
   t.replaceChildren(head, ...rows);
@@ -432,8 +494,18 @@ async function sendRaw(): Promise<void> {
 /* ---------------- 启动 ---------------- */
 
 function init(): void {
-  segment('gen-seg', 'gen', (v) => {
-    state.generation = Number(v) as Generation;
+  $('module').addEventListener('change', (ev) => {
+    const m = getModule((ev.target as HTMLSelectElement).value);
+    if (!m || m.status === 'reserved') return;
+    state.module = m;
+    state.variant = m.variants[0];
+    fillVariants();
+    updateLinkHint();
+    renderCaps();
+  });
+  segment('variant-seg', 'variant', (id) => {
+    const v = state.module.variants.find((x) => x.id === id);
+    if (v) state.variant = v;
     fillChassis();
     updateLinkHint();
   });
@@ -470,7 +542,7 @@ function init(): void {
     }
   });
 
-  fillChassis();
+  fillModules();
   updateLinkHint();
   renderCaps();
   renderGauges();

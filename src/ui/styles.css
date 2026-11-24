@@ -130,6 +130,7 @@ button.danger { color: var(--danger); border-color: var(--danger); background: t
 .badge { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap; }
 .badge.ready { color: var(--ok); }
 .badge.planned { color: var(--warn); }
+.badge.unsupported { color: var(--muted); }
 
 #log {
   background: var(--card);

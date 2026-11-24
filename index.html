@@ -17,11 +17,11 @@
       <!-- 连接 -->
       <section id="tab-connect" class="tab active">
         <div class="card">
-          <h2>1. 选择底盘</h2>
-          <div class="seg" id="gen-seg">
-            <button data-gen="1">一代 R50/R52/R53</button>
-            <button data-gen="2" class="on">二代 R55–R61</button>
-          </div>
+          <h2>1. 选择车型</h2>
+          <label>品牌 / 平台
+            <select id="module"></select>
+          </label>
+          <div class="seg" id="variant-seg"></div>
           <label>车型
             <select id="chassis"></select>
           </label>
@@ -77,8 +77,17 @@
       <!-- 编码 / 刷写 -->
       <section id="tab-code" class="tab">
         <div class="card">
-          <h2>功能支持情况</h2>
+          <h2 id="caps-title">功能支持情况</h2>
           <table class="caps" id="caps"></table>
+        </div>
+        <div class="card">
+          <h2>刷写</h2>
+          <div id="flash-panel"></div>
+        </div>
+        <div class="card">
+          <h2>即将支持的平台</h2>
+          <p class="hint">刷写框架已把通用流程（会话→解锁→擦写→校验→复位）做成通用的，各平台只需补上差异部分。</p>
+          <table class="caps" id="reserved-list"></table>
         </div>
         <div class="card">
           <h2>为什么编码和刷写还没开放</h2>
