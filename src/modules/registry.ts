@@ -3,6 +3,7 @@ import { miniR } from './mini-r';
 import { mercedes } from './mercedes';
 import { jlr } from './jlr';
 import { vw } from './vw';
+import { bmw } from './bmw';
 
 /**
  * 车型模块注册表。
@@ -22,9 +23,9 @@ function reserved(id: string, brand: string, name: string, note: string): Vehicl
 export const MODULES: VehicleModule[] = [
   miniR,
   mercedes,
+  bmw,
   jlr,
   vw,
-  reserved('bmw-fg', 'BMW', 'BMW F/G 底盘', '二代以后的宝马，与 MINI 同为 UDS/BMW-FAST，优先级高'),
   reserved('toyota', 'Toyota', '丰田 / 雷克萨斯', 'KWP/UDS，资料多'),
   reserved('generic-obd', '通用', '任意 OBD-II 车辆', '仅标准 OBD 诊断，不含刷写'),
 ];
